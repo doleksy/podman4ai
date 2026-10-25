@@ -1,0 +1,23 @@
+# Throwaway Claude Code image for the #3 prototype. Built with open internet
+# because it is discarded afterwards; the real Base image builds through an
+# Egress proxy (ADR 0003).
+FROM docker.io/library/debian:bookworm-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl git \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --create-home --uid 1000 --shell /bin/bash agent
+
+USER agent
+WORKDIR /home/agent
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/home/agent/.local/bin:${PATH}"
+
+# Self-updater, telemetry and error reporting off (spec stories 12 and 13).
+ENV DISABLE_AUTOUPDATER=1 \
+    DISABLE_TELEMETRY=1 \
+    DISABLE_ERROR_REPORTING=1
+
+COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["bash"]
