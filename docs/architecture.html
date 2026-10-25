@@ -1,0 +1,319 @@
+<title>podman4ai Architecture</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: one reading column; the diagrams break out wider and scroll sideways on phones. */
+:root {
+  --bg: #f4f6f4;
+  --surface: #ffffff;
+  --fg: #1c2530;
+  --muted: #5b6672;
+  --line: #c9d1d3;
+  --host: #e9edee;
+  --machine: #dfe7ea;
+  --net: #f7faf9;
+  --accent: #2b6b5c;
+  --accent-soft: #dcebe6;
+  --danger: #b0402c;
+  --danger-soft: #f6e1dc;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12171c; --surface: #1a2027; --fg: #e3e8ea; --muted: #9aa6ae; --line: #36414a;
+    --host: #171d23; --machine: #1d252c; --net: #222b33;
+    --accent: #6cc2aa; --accent-soft: #1f3a33; --danger: #ef8a73; --danger-soft: #3d2420;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12171c; --surface: #1a2027; --fg: #e3e8ea; --muted: #9aa6ae; --line: #36414a;
+  --host: #171d23; --machine: #1d252c; --net: #222b33;
+  --accent: #6cc2aa; --accent-soft: #1f3a33; --danger: #ef8a73; --danger-soft: #3d2420;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+}
+main { max-width: 1120px; margin: 0 auto; display: grid; gap: 48px; }
+.prose { max-width: 68ch; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--display); font-weight: 600; font-size: clamp(30px, 5vw, 44px); line-height: 1.05; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 24px; margin: 0 0 12px; text-wrap: balance; }
+p { margin: 0; }
+.lede { color: var(--muted); font-size: 17px; }
+code { font-family: var(--mono); font-size: .9em; }
+figure { margin: 0; display: grid; gap: 12px; }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+.scroll svg { display: block; width: 100%; height: auto; min-width: 760px; }
+figcaption { color: var(--muted); font-size: 14px; max-width: 80ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend i { display: inline-block; width: 28px; height: 0; border-top: 2px solid var(--accent); }
+.legend i.no { border-top: 2px dashed var(--danger); }
+.legend i.ctl { border-top-color: var(--fg); }
+
+/* SVG classes */
+.b-host { fill: var(--host); stroke: var(--line); }
+.b-machine { fill: var(--machine); stroke: var(--muted); stroke-width: 1.5; }
+.b-net { fill: var(--net); stroke: var(--muted); stroke-dasharray: 5 4; }
+.b-box { fill: var(--surface); stroke: var(--fg); stroke-width: 1.2; }
+.b-proxy { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+.b-vol { fill: var(--machine); stroke: var(--muted); }
+.b-allow { fill: var(--accent-soft); stroke: var(--accent); }
+.b-deny { fill: var(--danger-soft); stroke: var(--danger); }
+.t { fill: var(--fg); font-family: var(--body); font-size: 12px; }
+.t-b { fill: var(--fg); font-family: var(--body); font-size: 13px; font-weight: 600; }
+.t-m { fill: var(--muted); font-family: var(--body); font-size: 11.5px; }
+.t-mono { fill: var(--fg); font-family: var(--mono); font-size: 11px; }
+.t-zone { fill: var(--muted); font-family: var(--mono); font-size: 11px; letter-spacing: .03em; }
+.t-acc { fill: var(--accent); font-family: var(--body); font-size: 12px; font-weight: 600; }
+.t-no { fill: var(--danger); font-family: var(--body); font-size: 12px; font-weight: 600; }
+.a-ctl { stroke: var(--fg); stroke-width: 1.4; fill: none; }
+.a-ok { stroke: var(--accent); stroke-width: 2; fill: none; }
+.a-no { stroke: var(--danger); stroke-width: 2; stroke-dasharray: 6 4; fill: none; }
+.h-ctl { fill: var(--fg); } .h-ok { fill: var(--accent); } .h-no { fill: var(--danger); }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tablewrap { overflow-x: auto; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line); }
+th { font-family: var(--mono); font-size: 11.5px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+td:first-child { font-weight: 600; white-space: nowrap; }
+td.adr { font-family: var(--mono); font-size: 12.5px; color: var(--accent); white-space: nowrap; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 32px; }
+.cols > * { min-width: 0; }
+ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.tag { display: inline-block; font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 3px; background: var(--danger-soft); color: var(--danger); margin-right: 6px; }
+.tag.ok { background: var(--accent-soft); color: var(--accent); }
+</style>
+
+<main>
+  <header class="prose">
+    <div class="eyebrow">Design · agreed in interview, October 2026</div>
+    <h1>podman4ai Architecture</h1>
+    <p class="lede">All AI agent work runs in a per-project Sandbox inside a dedicated Hyper-V VM. Windows only ever sees an editor interface and the ports you choose to open, and the internet is reachable only through each project's Egress proxy.</p>
+  </header>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 1100 740" role="img" aria-label="Windows Host contains the Launcher, Host settings, VS Code, a browser and the E drive. The Launcher drives a Hyper-V Sandbox machine holding Podman secrets, images, and one internal network per project. Each network holds a Sandbox and its Egress proxy. Proxies reach only allowlisted internet domains. The E drive is never mounted, and projects have no path to each other.">
+        <defs>
+          <marker id="hc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="h-ctl"/></marker>
+          <marker id="ho" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="h-ok"/></marker>
+          <marker id="hn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="h-no"/></marker>
+        </defs>
+
+        <!-- Windows Host -->
+        <rect class="b-host" x="20" y="20" width="860" height="700" rx="8"/>
+        <text class="t-b" x="40" y="46">Windows Host</text>
+        <text class="t-zone" x="40" y="64">the thing being protected</text>
+
+        <rect class="b-box" x="40" y="83" width="170" height="70" rx="4"/>
+        <text class="t-b" x="125" y="112" text-anchor="middle">p4a Launcher</text>
+        <text class="t-m" x="125" y="131" text-anchor="middle">Bash · installed clone</text>
+
+        <rect class="b-box" x="40" y="180" width="170" height="80" rx="4"/>
+        <text class="t-b" x="125" y="204" text-anchor="middle">Host settings</text>
+        <text class="t-m" x="125" y="223" text-anchor="middle">Allowlists · limits</text>
+        <text class="t-m" x="125" y="241" text-anchor="middle">Project Containerfiles</text>
+        <line class="a-ctl" x1="125" y1="180" x2="125" y2="155" marker-end="url(#hc)"/>
+        <text class="t-m" x="133" y="172">reads</text>
+
+        <rect class="b-box" x="40" y="290" width="170" height="70" rx="4"/>
+        <text class="t-b" x="125" y="318" text-anchor="middle">VS Code</text>
+        <text class="t-m" x="125" y="337" text-anchor="middle">interface only</text>
+
+        <rect class="b-box" x="40" y="380" width="170" height="52" rx="4"/>
+        <text class="t-b" x="125" y="402" text-anchor="middle">Browser</text>
+        <text class="t-mono" x="125" y="420" text-anchor="middle">localhost:3000</text>
+
+        <rect class="b-deny" x="40" y="560" width="170" height="60" rx="4"/>
+        <text class="t-b" x="125" y="585" text-anchor="middle">E:\workspace</text>
+        <text class="t-m" x="125" y="604" text-anchor="middle">Windows drives</text>
+        <line class="a-no" x1="210" y1="590" x2="300" y2="590"/>
+        <text class="t-no" x="255" y="579" text-anchor="middle">never mounted</text>
+        <text class="t-no" x="255" y="595" text-anchor="middle" font-size="15">✕</text>
+
+        <!-- Launcher to machine -->
+        <line class="a-ctl" x1="210" y1="115" x2="298" y2="115" marker-end="url(#hc)"/>
+        <text class="t-m" x="255" y="107" text-anchor="middle">drives podman</text>
+
+        <!-- Sandbox machine -->
+        <rect class="b-machine" x="300" y="60" width="560" height="640" rx="8"/>
+        <text class="t-b" x="318" y="84">Sandbox machine</text>
+        <text class="t-zone" x="440" y="84">Hyper-V VM · own kernel · rootless Podman</text>
+
+        <rect class="b-box" x="318" y="98" width="524" height="34" rx="4"/>
+        <text class="t" x="580" y="119" text-anchor="middle">Podman secrets · Agent token + one Repo token per project</text>
+        <rect class="b-box" x="318" y="142" width="524" height="34" rx="4"/>
+        <text class="t" x="580" y="163" text-anchor="middle">Base image → Project images · builds also go through an Egress proxy</text>
+
+        <!-- Project A -->
+        <rect class="b-net" x="318" y="190" width="524" height="236" rx="6"/>
+        <text class="t-zone" x="332" y="208">Project A · own internal network · no route out</text>
+
+        <rect class="b-box" x="332" y="220" width="270" height="192" rx="4"/>
+        <text class="t-b" x="467" y="242" text-anchor="middle">Sandbox A</text>
+        <text class="t" x="467" y="262" text-anchor="middle">Claude Code in tmux</text>
+        <text class="t-m" x="467" y="280" text-anchor="middle">non-root · all capabilities dropped</text>
+        <text class="t-m" x="467" y="298" text-anchor="middle">4 GB · 4 CPU · 4096 processes</text>
+        <rect class="b-vol" x="345" y="316" width="118" height="40" rx="3"/>
+        <text class="t" x="404" y="340" text-anchor="middle">Project volume</text>
+        <rect class="b-vol" x="471" y="316" width="118" height="40" rx="3"/>
+        <text class="t" x="530" y="340" text-anchor="middle">Claude config</text>
+        <text class="t-mono" x="467" y="384" text-anchor="middle">/run/secrets: agent, repo A</text>
+
+        <rect class="b-proxy" x="690" y="262" width="140" height="104" rx="4"/>
+        <text class="t-b" x="760" y="290" text-anchor="middle">Egress proxy A</text>
+        <text class="t" x="760" y="310" text-anchor="middle">Allowlist A</text>
+        <text class="t-m" x="760" y="328" text-anchor="middle">logs every attempt</text>
+        <line class="a-ok" x1="602" y1="314" x2="688" y2="314" marker-end="url(#ho)"/>
+        <text class="t-mono" x="646" y="305" text-anchor="middle">HTTPS_PROXY</text>
+
+        <!-- Host to Sandbox A -->
+        <line class="a-ctl" x1="210" y1="325" x2="330" y2="325" marker-end="url(#hc)"/>
+        <text class="t-m" x="262" y="317" text-anchor="middle">attaches</text>
+        <line class="a-ctl" x1="332" y1="400" x2="212" y2="400" marker-end="url(#hc)"/>
+        <text class="t-m" x="270" y="392" text-anchor="middle">p4a port, on request</text>
+
+        <!-- isolation between projects -->
+        <text class="t-no" x="580" y="443" text-anchor="middle">✕  no path between projects</text>
+
+        <!-- Project B -->
+        <rect class="b-net" x="318" y="450" width="524" height="236" rx="6"/>
+        <text class="t-zone" x="332" y="468">Project B · own internal network · no route out</text>
+
+        <rect class="b-box" x="332" y="480" width="270" height="192" rx="4"/>
+        <text class="t-b" x="467" y="502" text-anchor="middle">Sandbox B</text>
+        <text class="t" x="467" y="522" text-anchor="middle">Claude Code in tmux</text>
+        <text class="t-m" x="467" y="540" text-anchor="middle">same hardening, own limits</text>
+        <rect class="b-vol" x="345" y="560" width="118" height="40" rx="3"/>
+        <text class="t" x="404" y="584" text-anchor="middle">Project volume</text>
+        <rect class="b-vol" x="471" y="560" width="118" height="40" rx="3"/>
+        <text class="t" x="530" y="584" text-anchor="middle">Claude config</text>
+        <text class="t-mono" x="467" y="640" text-anchor="middle">/run/secrets: agent, repo B</text>
+
+        <rect class="b-proxy" x="690" y="522" width="140" height="104" rx="4"/>
+        <text class="t-b" x="760" y="550" text-anchor="middle">Egress proxy B</text>
+        <text class="t" x="760" y="570" text-anchor="middle">Allowlist B</text>
+        <text class="t-m" x="760" y="588" text-anchor="middle">logs every attempt</text>
+        <line class="a-ok" x1="602" y1="574" x2="688" y2="574" marker-end="url(#ho)"/>
+        <text class="t-mono" x="646" y="565" text-anchor="middle">HTTPS_PROXY</text>
+
+        <!-- Internet -->
+        <text class="t-b" x="995" y="160" text-anchor="middle">Internet</text>
+        <rect class="b-allow" x="910" y="180" width="170" height="250" rx="4"/>
+        <text class="t-acc" x="995" y="204" text-anchor="middle">Allowlist</text>
+        <text class="t-mono" x="922" y="230">api.anthropic.com</text>
+        <text class="t-mono" x="922" y="250">github.com</text>
+        <text class="t-mono" x="922" y="270">api.github.com</text>
+        <text class="t-mono" x="922" y="290">codeload·objects·raw</text>
+        <text class="t-mono" x="922" y="310">registry.npmjs.org</text>
+        <text class="t-mono" x="922" y="330">pypi.org</text>
+        <text class="t-mono" x="922" y="350">files.pythonhosted.org</text>
+        <text class="t-mono" x="922" y="370">VS Code server</text>
+        <text class="t-mono" x="922" y="390">VS Code marketplace</text>
+        <text class="t-m" x="922" y="414">+ per-project additions</text>
+
+        <rect class="b-deny" x="910" y="470" width="170" height="80" rx="4"/>
+        <text class="t-no" x="995" y="502" text-anchor="middle">Everything else</text>
+        <text class="t-m" x="995" y="522" text-anchor="middle">refused and logged</text>
+
+        <line class="a-ok" x1="830" y1="300" x2="908" y2="300" marker-end="url(#ho)"/>
+        <line class="a-ok" x1="830" y1="555" x2="908" y2="420" marker-end="url(#ho)"/>
+        <line class="a-no" x1="830" y1="600" x2="908" y2="520" marker-end="url(#hn)"/>
+      </svg>
+    </div>
+    <div class="legend">
+      <span><i class="ctl"></i>control from the Host</span>
+      <span><i></i>network traffic that is allowed</span>
+      <span><i class="no"></i>blocked</span>
+    </div>
+    <figcaption>Each project gets a Sandbox and an Egress proxy on its own internal network. The proxy is the only way out, and it allows domain names on that project's Allowlist. Known remaining risk: an allowed service is fully reachable, so an attacker-supplied token could push to their own GitHub repo. The proxy can later be swapped for one that inspects traffic.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 1000 230" role="img" aria-label="Split editors such as VS Code run project code in the Sandbox. Visual Studio runs on Windows and would execute project build files on the Host.">
+        <defs>
+          <marker id="hc2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="h-ctl"/></marker>
+          <marker id="hn2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="h-no"/></marker>
+        </defs>
+        <text class="t-acc" x="40" y="36">VS Code, or Rider via Gateway · allowed</text>
+        <rect class="b-box" x="40" y="60" width="170" height="90" rx="4"/>
+        <text class="t-b" x="125" y="98" text-anchor="middle">Windows</text>
+        <text class="t-m" x="125" y="118" text-anchor="middle">editor interface</text>
+        <rect class="b-proxy" x="290" y="60" width="170" height="90" rx="4"/>
+        <text class="t-b" x="375" y="98" text-anchor="middle">Sandbox</text>
+        <text class="t-m" x="375" y="118" text-anchor="middle">files · builds · terminals</text>
+        <line class="a-ctl" x1="212" y1="105" x2="288" y2="105" marker-start="url(#hc2)" marker-end="url(#hc2)"/>
+        <text class="t-m" x="250" y="96" text-anchor="middle">UI protocol</text>
+        <text class="t-acc" x="250" y="190" text-anchor="middle">project code runs in the Sandbox</text>
+
+        <line x1="500" y1="20" x2="500" y2="210" stroke="var(--line)"/>
+
+        <text class="t-no" x="540" y="36">Visual Studio · ruled out</text>
+        <rect class="b-deny" x="540" y="60" width="170" height="90" rx="4"/>
+        <text class="t-b" x="625" y="98" text-anchor="middle">Windows</text>
+        <text class="t-m" x="625" y="118" text-anchor="middle">IDE + MSBuild</text>
+        <rect class="b-box" x="790" y="60" width="170" height="90" rx="4"/>
+        <text class="t-b" x="875" y="98" text-anchor="middle">Sandbox</text>
+        <text class="t-m" x="875" y="118" text-anchor="middle">Agent writes .csproj</text>
+        <line class="a-no" x1="790" y1="105" x2="712" y2="105" marker-end="url(#hn2)"/>
+        <text class="t-m" x="750" y="96" text-anchor="middle">files via share</text>
+        <text class="t-no" x="750" y="190" text-anchor="middle">project code runs on the Host</text>
+      </svg>
+    </div>
+    <figcaption>Opening a solution in Visual Studio runs its MSBuild files on Windows, so a planted target would execute outside the Sandbox. Split editors keep that work inside it, so they are the only editors used for Sandbox work (ADR 0001).</figcaption>
+  </figure>
+
+  <section>
+    <h2>Decisions</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Area</th><th>Decision</th><th>ADR</th></tr></thead>
+        <tbody>
+          <tr><td>Threat model</td><td>Damage to the Host, credential and data leaks, and supply-chain malware, at a home-lab level. Safe to run with prompts off.</td><td class="adr"></td></tr>
+          <tr><td>Sandbox machine</td><td>Dedicated Podman machine on Hyper-V: 12 GB, 6 CPUs, 200 GB. WSL2 stays for everything else.</td><td class="adr">0004</td></tr>
+          <tr><td>Source</td><td>A Project volume per project, cloned from GitHub. No Windows path is ever mounted.</td><td class="adr">0001</td></tr>
+          <tr><td>Configuration</td><td>The Launcher owns it, from Host settings. No devcontainer.json, and nothing an Agent can write to defines the boundary.</td><td class="adr">0002</td></tr>
+          <tr><td>Network</td><td>Per-project internal network and Egress proxy, allowing domain names on the Allowlist. Added only by you, with <code>p4a allow</code>.</td><td class="adr">0003</td></tr>
+          <tr><td>Hardening</td><td>Rootless, all capabilities dropped, <code>no-new-privileges</code>, non-root user, no <code>sudo</code>, no Podman socket, limits of 4 GB / 4 CPUs / 4096 processes.</td><td class="adr"></td></tr>
+          <tr><td>Secrets</td><td>Agent token from <code>claude setup-token</code> and a Repo token per project, stored as Podman secrets and mounted as files.</td><td class="adr"></td></tr>
+          <tr><td>Base image</td><td>Anthropic's reference Dockerfile, adapted: Debian, Node, Python with uv, Bun, tmux, gh. No zsh and no in-container firewall.</td><td class="adr"></td></tr>
+          <tr><td>Claude baseline</td><td>Settings and plugins (context-mode, mattpocock-skills) versioned in podman4ai and baked into the image. Memory stays per Sandbox.</td><td class="adr"></td></tr>
+          <tr><td>Working</td><td>VS Code attaches to the Sandbox; Visual Studio is ruled out.</td><td class="adr">0001</td></tr>
+          <tr><td>Sessions</td><td>Sessions run in tmux via <code>p4a claude</code>. Commits use your name with a Co-Authored-By line.</td><td class="adr"></td></tr>
+          <tr><td>Updates</td><td><code>p4a image build</code>, then <code>p4a recreate</code>. Claude's self-updater is off.</td><td class="adr"></td></tr>
+          <tr><td>Testing</td><td>bats unit tests with a stand-in podman, plus integration tests you run on the Host before merging.</td><td class="adr"></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="cols">
+    <div>
+      <h2>Prototype checks first</h2>
+      <ul>
+        <li>Hyper-V Podman works on Windows 10 Pro without constant admin prompts.</li>
+        <li><code>claude setup-token</code> works with your subscription inside a Sandbox.</li>
+        <li>How strictly Podman enforces one running machine at a time.</li>
+        <li><code>ctx_doctor</code> passes inside a Sandbox.</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Also agreed</h2>
+      <ul>
+        <li><span class="tag ok">ADR 0003</span>Every image build goes through an Egress proxy, so no build has open internet.</li>
+        <li><span class="tag ok">deliverable</span>A tmux cheat sheet.</li>
+      </ul>
+    </div>
+  </section>
+</main>

@@ -1,0 +1,24 @@
+# Secrets and local environment (tokens belong in Podman secrets, never in the repo)
+.env
+.env.*
+*.token
+*.pem
+*.key
+
+# Claude Code per-user local settings
+.claude/settings.local.json
+
+# Local scratch work and throwaway prototypes
+.scratch/
+
+# Test output
+/test-results/
+*.log
+
+# Editor and OS clutter
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
