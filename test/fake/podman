@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stand-in podman on PATH for the unit tests. See podman.js.
+# p4a turns off Git Bash path conversion, so give node (a Windows program
+# under Git Bash) its paths in a form it understands.
+script="$(dirname "$0")/podman.js"
+if command -v cygpath >/dev/null 2>&1; then
+  script="$(cygpath -m "$script")"
+  FAKE_PODMAN_DIR="$(cygpath -m "$FAKE_PODMAN_DIR")"
+  export FAKE_PODMAN_DIR
+fi
+exec node "$script" "$@"

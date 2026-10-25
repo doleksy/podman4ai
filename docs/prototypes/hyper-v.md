@@ -21,6 +21,8 @@ Evidence behind ADR 0004, gathered for #2 on 2026-10-25.
 
 Everything after that, including `podman machine init`, works from a normal shell.
 
+**Correction (found while building #4):** `podman machine init` for the *first* Hyper-V machine (when no other exists) has to add registry entries under `HKLM\...\Virtualization\GuestCommunicationServices`. From a normal shell, Podman relaunches itself elevated to do that (`RelaunchElevatedWait` in Podman's Hyper-V code). The elevated copy doesn't inherit the parent's environment, so `CONTAINERS_CONF_OVERRIDE` is lost and the machine gets the default drive shares. Seven runs confirmed it: the first Hyper-V machine always got the shares, and a second one created while the first existed never did. Removing the last Hyper-V machine removes the entries again. `p4a-novol` most likely came out clean because `p4a-proto` (created in an admin shell) still existed, or its registry entries did.
+
 ## 1. Can a non-elevated shell start and stop the machine?
 
 **Only after joining Hyper-V Administrators.**
