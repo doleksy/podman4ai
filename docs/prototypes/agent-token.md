@@ -2,7 +2,7 @@
 
 Evidence for #3, gathered on 2026-10-25. Scripts: [prototypes/agent-token/](../../prototypes/agent-token/).
 
-**Result: _pending_.**
+**Result: confirmed.** Claude Code signs in using only the Agent token from a mounted secret file, through an Egress proxy that allows only `api.anthropic.com`. This holds for `claude -p` and for interactive sessions, provided the image's `~/.claude.json` marks first-run setup as done (see [section 3](#3-is-apianthropiccom-alone-enough)).
 
 ## Setup
 
@@ -41,7 +41,7 @@ Strict proxy (only `api.anthropic.com` allowed):
   Failed to connect to platform.claude.com: ERR_PROXY_TUNNEL
   ```
   The proxy refused `platform.claude.com` and `raw.githubusercontent.com`. With `platform.claude.com` allowed, the session gets to the first-run theme picker, so the connectivity check belongs to first-run setup.
-- **Interactive session with `hasCompletedOnboarding: true` and the folder already trusted: starts.** It reaches the prompt without contacting `platform.claude.com`. Tested with a fake token in a simulated terminal, and _pending_ with the real token and a real prompt. The image now includes this file ([claude.json](../../prototypes/agent-token/claude/claude.json)).
+- **Interactive session with `hasCompletedOnboarding: true` and the folder already trusted: starts.** It reaches the prompt without contacting `platform.claude.com`. Confirmed first with a fake token in a simulated terminal, then with the real token: the session answered a prompt while the proxy refused every domain except `api.anthropic.com`. The image now includes this file ([claude.json](../../prototypes/agent-token/claude/claude.json)).
 
 Domains the started session still tries, all refused with no visible effect:
 
@@ -68,7 +68,10 @@ Same results with the open and strict proxies, using the real token:
 
 ## 5. Token lifetime and regeneration
 
-_pending: lifetime shown by `claude setup-token`, how to regenerate it, and how to replace the Podman secret._
+- **Lifetime: 1 year** from creation. `claude setup-token` reports this when it creates the token. `claude setup-token --help` doesn't mention it.
+- **Regenerate:** on the Host, run `claude setup-token` again and sign in in the browser. It's interactive, so the developer has to do it.
+- **Replace the secret:** `./set-token.sh` here, later `p4a secret set agent-token`. Both read the token from a hidden prompt, then run `podman secret rm` and `podman secret create`. Podman mounts secrets when a container is created, so running Sandboxes keep the old value until they are recreated.
+- **For the Launcher:** an expired token shows up as `401 Invalid bearer token` (seen with the fake token). The Launcher can't read the expiry date from the token, so it could record the creation date when the secret is stored and warn as the year runs out.
 
 ## Found while building the prototype
 
