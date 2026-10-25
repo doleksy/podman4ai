@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# p4a: the podman4ai Launcher. Run under Git Bash on the Host.
+set -euo pipefail
+shopt -s inherit_errexit
+
+P4A_HOME="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+# shellcheck source=../lib/common.sh
+source "$P4A_HOME/lib/common.sh"
+# shellcheck source=../lib/podman.sh
+source "$P4A_HOME/lib/podman.sh"
+# shellcheck source=../lib/machine.sh
+source "$P4A_HOME/lib/machine.sh"
+
+main() {
+  local command="${1:-}"
+  case $command in
+    "" | -h | --help | help) p4a_usage ;;
+    machine) shift; p4a_machine "$@" ;;
+    podman) shift; p4a_podman --connection "$P4A_MACHINE" "$@" ;;
+    *) p4a_usage_error "unknown command '$command'" "p4a --help" ;;
+  esac
+}
+
+p4a_usage() {
+  cat <<'EOF'
+Usage: p4a <command> [args...]
+
+podman4ai Launcher: runs each project's Agents in its own isolated Sandbox.
+
+Commands:
+  p4a machine <command>   create, start, stop or check the Sandbox machine
+                          (see: p4a machine --help)
+  p4a podman <args>...    run any podman command against the Sandbox machine
+  p4a --help              show this help
+EOF
+}
+
+main "$@"
