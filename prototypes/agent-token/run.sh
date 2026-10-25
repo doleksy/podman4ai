@@ -183,7 +183,7 @@ run_mode() {
   cmd_checks
   echo "Now run a short interactive session; type a prompt or two, then /exit."
   read -rp "Press Enter to start it (or type 'skip'): " answer
-  [[ "$answer" == skip ]] || cmd_session
+  [[ "$answer" == skip ]] || cmd_session || echo "Session exited with an error; carrying on."
   cmd_domains
 }
 

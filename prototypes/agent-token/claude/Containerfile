@@ -18,6 +18,10 @@ ENV DISABLE_AUTOUPDATER=1 \
     DISABLE_TELEMETRY=1 \
     DISABLE_ERROR_REPORTING=1
 
+# Skip first-run setup and the folder-trust prompt. Without this, the first
+# interactive session runs a connectivity check against platform.claude.com.
+COPY --chown=agent:agent claude.json /home/agent/.claude.json
+
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["bash"]

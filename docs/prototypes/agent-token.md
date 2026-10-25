@@ -30,18 +30,41 @@ Open proxy, during `claude -p` and a short interactive session:
 
 ## 3. Is `api.anthropic.com` alone enough?
 
-Strict proxy (only `api.anthropic.com` allowed): _pending_
+**Yes, provided `~/.claude.json` already marks first-run setup as done.** The Base image bakes that file in anyway (spec story 14).
+
+Strict proxy (only `api.anthropic.com` allowed):
+
+- **`claude -p`: works.** It replied `Hello! How can I help you today?` with the real token.
+- **Interactive session with a fresh `~/.claude.json`: fails** before the prompt appears:
+  ```
+  Unable to connect to Anthropic services
+  Failed to connect to platform.claude.com: ERR_PROXY_TUNNEL
+  ```
+  The proxy refused `platform.claude.com` and `raw.githubusercontent.com`. With `platform.claude.com` allowed, the session gets to the first-run theme picker, so the connectivity check belongs to first-run setup.
+- **Interactive session with `hasCompletedOnboarding: true` and the folder already trusted: starts.** It reaches the prompt without contacting `platform.claude.com`. Tested with a fake token in a simulated terminal, and _pending_ with the real token and a real prompt. The image now includes this file ([claude.json](../../prototypes/agent-token/claude/claude.json)).
+
+Domains the started session still tries, all refused with no visible effect:
+
+| Domain | With `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` |
+|---|---|
+| `downloads.claude.ai` | Still tried |
+| `github.com` | Still tried (it's on the default Allowlist anyway) |
+| `raw.githubusercontent.com` | No longer tried |
 
 ## 4. Isolation and token exposure
 
+Same results with the open and strict proxies, using the real token:
+
 | Check | Result |
 |---|---|
-| No direct route out | |
-| No outside DNS | |
-| Strict proxy refuses other domains | |
-| Token not in `podman inspect` | |
-| Token not in image history | |
-| Token not in shell history | |
+| No direct route out | Pass |
+| No outside DNS | Pass |
+| Strict proxy refuses other domains | Pass (`example.com` refused) |
+| Token not in `podman inspect` | Pass |
+| Secret file mode 0400 | Pass |
+| Token not in image history | Pass |
+| Token not in shell history | Pass |
+| Token not in proxy logs | Pass (no `sk-ant` in either log) |
 
 ## 5. Token lifetime and regeneration
 
@@ -53,3 +76,4 @@ _pending: lifetime shown by `claude setup-token`, how to regenerate it, and how 
 - **Git Bash rewrites `/run/...` arguments into Windows paths** before they reach `podman.exe`. The scripts set `MSYS_NO_PATHCONV=1` and pass `cygpath -m` paths where Podman needs a Windows path, such as a build folder. The Launcher (a Bash script) needs the same handling.
 - tinyproxy logs a `CONNECT` request before it applies its filter, so refused domains appear in both the request lines and the "refused" lines of the log.
 - Dry run with a fake token: Claude contacted only `api.anthropic.com` and failed with `401 Invalid bearer token`. The token file, the proxy route and the isolation checks all work, so only the real sign-in is left to test.
+- **Interactive tests in a simulated terminal:** `script -qc claude` hangs when Podman is also given `-t`. Run it without `-t`, and `script` supplies the terminal. This is useful for automated integration tests of an interactive session.
