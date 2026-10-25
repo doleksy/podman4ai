@@ -1,27 +1,32 @@
 # Prototype: Agent token in a proxied container
 
-Evidence for #3, gathered on _YYYY-MM-DD_. Scripts: [prototypes/agent-token/](../../prototypes/agent-token/).
+Evidence for #3, gathered on 2026-10-25. Scripts: [prototypes/agent-token/](../../prototypes/agent-token/).
 
 **Result: _pending_.**
 
 ## Setup
 
 - Windows 10 Pro 19045, Podman 6.1.4, WSL machine `podman-machine-default`.
-- Claude Code _version_ (native installer), with `DISABLE_AUTOUPDATER`, `DISABLE_TELEMETRY` and `DISABLE_ERROR_REPORTING` set to 1.
+- Claude Code 2.1.310 (native installer), with `DISABLE_AUTOUPDATER`, `DISABLE_TELEMETRY` and `DISABLE_ERROR_REPORTING` set to 1.
 - Internal network with `--internal --disable-dns`. tinyproxy 1.11.2 is the only container on both that network and the default network.
 - The token is a Podman secret mounted at `/run/secrets/agent-token` (uid 1000, mode 0400). The entrypoint exports it as `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## 1. Does `claude -p` sign in from the token file alone?
 
-_pending_
+**Yes.** With the open proxy, `claude -p "say hello"` replied `Hello! How can I help you today?`. The token came only from the mounted secret file. A short interactive session worked too.
 
 ## 2. Which domains are contacted?
 
 Open proxy, during `claude -p` and a short interactive session:
 
-| Requests | Domain |
-|---|---|
-| | |
+| Requests | Domain | When |
+|---|---|---|
+| 21 | `api.anthropic.com` | `claude -p` and the interactive session |
+| 1 | `platform.claude.com` | Interactive session start-up |
+| 1 | `raw.githubusercontent.com` | Interactive session start-up |
+| 2 | `downloads.claude.ai` | Interactive session, about 10 s in |
+
+`claude -p` contacted only `api.anthropic.com`. The other three domains were contacted only by the interactive session, even with the self-updater, telemetry and error reporting off. Section 3 tests whether the session still works without them.
 
 ## 3. Is `api.anthropic.com` alone enough?
 

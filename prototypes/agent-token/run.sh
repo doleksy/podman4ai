@@ -4,6 +4,8 @@
 #
 #   ./run.sh all       build, test with an open proxy, then with only
 #                      api.anthropic.com allowed; writes results to .scratch/
+#   ./run.sh open      just the open-proxy half of `all` (no build)
+#   ./run.sh strict    just the strict-proxy half of `all` (no build)
 #   ./run.sh build     build both images
 #   ./run.sh up MODE   (re)start the network and proxy; MODE is open or strict
 #   ./run.sh hello     claude -p "say hello"
@@ -29,8 +31,10 @@ proxy_ip=10.89.100.2
 subnet=10.89.100.0/24
 proxy_url="http://$proxy:8888"
 
-pass() { echo "PASS  $*"; }
-fail() { echo "FAIL  $*"; failures=$((failures + 1)); }
+checks_file=""
+report() { echo "$*"; [[ -z "$checks_file" ]] || echo "$*" >> "$checks_file"; }
+pass() { report "PASS  $*"; }
+fail() { report "FAIL  $*"; failures=$((failures + 1)); }
 failures=0
 
 claude_run() {
@@ -93,6 +97,8 @@ cmd_session() {
 cmd_checks() {
   local mode; mode="$(cat "$out/mode")"
   echo "--- checks ($mode proxy)"
+  checks_file="$out/checks-$mode.txt"
+  : > "$checks_file"
 
   if claude_run "${claude_flags[@]}" "$claude_img" \
       curl -sS --max-time 10 --noproxy '*' -o /dev/null https://example.com 2>/dev/null; then
@@ -158,10 +164,10 @@ cmd_domains() {
   {
     echo "# Requested through the proxy ($mode); request count, domain"
     grep -oE 'Request \(file descriptor [0-9]+\): [A-Z]+ [^ ]+' "$out/proxy-$mode.log" \
-      | awk '{print $NF}' | sed -E 's#^[a-z]+://##; s#[:/].*$##' | sort | uniq -c | sort -rn
+      | awk '{print $NF}' | sed -E 's#^[a-z]+://##; s#[:/].*$##' | sort | uniq -c | sort -rn || true
     echo "# Refused by the proxy ($mode)"
     grep -oE 'refused on filtered domain "[^"]+"' "$out/proxy-$mode.log" \
-      | sed -E 's/.*"(.*)"/\1/' | sort | uniq -c | sort -rn
+      | sed -E 's/.*"(.*)"/\1/' | sort | uniq -c | sort -rn || true  # none refused is fine
   } | tee "$out/domains-$mode.txt"
 }
 
@@ -171,27 +177,29 @@ cmd_down() {
   echo "Removed proxy and network."
 }
 
-cmd_all() {
-  cmd_build
-  cmd_up open
+run_mode() {
+  cmd_up "$1"
   cmd_hello
   cmd_checks
   echo "Now run a short interactive session; type a prompt or two, then /exit."
   read -rp "Press Enter to start it (or type 'skip'): " answer
   [[ "$answer" == skip ]] || cmd_session
   cmd_domains
-  cmd_up strict
-  cmd_hello
-  cmd_checks
-  cmd_domains
+}
+
+finish() {
   cmd_down
   echo
   echo "Results are in $out (gitignored). Failures: $failures"
 }
 
+cmd_all()    { cmd_build; run_mode open; run_mode strict; finish; }
+cmd_open()   { run_mode open; finish; }
+cmd_strict() { run_mode strict; finish; }
+
 case "${1:-}" in
-  build|hello|session|checks|domains|down|all) "cmd_$1" ;;
+  build|hello|session|checks|domains|down|all|open|strict) "cmd_$1" ;;
   up) cmd_up "${2:-open}" ;;
-  *) sed -n '2,14p' "$0"; exit 2 ;;
+  *) sed -n '2,16p' "$0"; exit 2 ;;
 esac
 exit $(( failures > 0 ))
