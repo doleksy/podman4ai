@@ -8,7 +8,7 @@ Podman on Windows defaults to WSL2, but every WSL2 distro shares one Linux kerne
 
 ## Status
 
-Confirmed by the Hyper-V prototype (#2) on Windows 10 Pro with Podman 6.1.4.
+Confirmed by the Hyper-V prototype (#2) on Windows 10 Pro with Podman 6.1.4. Evidence: [docs/prototypes/hyper-v.md](../prototypes/hyper-v.md).
 
 ## Consequences
 
