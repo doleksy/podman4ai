@@ -1,0 +1,10 @@
+# Throwaway Egress proxy for the #3 prototype. Logs every request it gets
+# to stdout, so `podman logs` shows which domains Claude Code contacted.
+FROM docker.io/library/alpine:3.22
+RUN apk add --no-cache tinyproxy
+COPY open.conf strict.conf strict.filter /etc/tinyproxy/
+USER tinyproxy
+EXPOSE 8888
+# open.conf: allow everything and log it (to find out what is contacted).
+# strict.conf: allow only the domains in strict.filter.
+CMD ["tinyproxy", "-d", "-c", "/etc/tinyproxy/open.conf"]
