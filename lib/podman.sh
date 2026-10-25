@@ -15,6 +15,12 @@ p4a_podman() {
   MSYS_NO_PATHCONV=1 CONTAINERS_MACHINE_PROVIDER=$P4A_PROVIDER command podman "$@"
 }
 
+# Run a podman command inside the Sandbox machine (images, containers,
+# networks), as opposed to `podman machine` commands about it.
+p4a_sandbox_podman() {
+  p4a_podman --connection "$P4A_MACHINE" "$@"
+}
+
 # Print a Host file path in the form podman.exe understands. Under Git Bash
 # that's C:/... (path conversion is off); elsewhere the path is unchanged.
 p4a_native_path() {
