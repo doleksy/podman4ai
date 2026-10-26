@@ -176,7 +176,9 @@ start podman4ai-hello-world" ]
   p4a start hello-world
   p4a start hello-world
   [ "$(sandbox_calls | grep -c '^exec podman4ai-hello-world curl https://github.com')" -eq 2 ]
-  [ "$(sandbox_calls | grep -c '^exec podman4ai-hello-world curl https://example.com')" -eq 2 ]
+  [ "$(sandbox_calls | grep '^exec podman4ai-hello-world curl https://example.com' | grep -vc -- '--noproxy')" -eq 2 ]
+  # example.com is also tried without the proxy, which must fail too.
+  [ "$(sandbox_calls | grep -cF 'exec podman4ai-hello-world curl https://example.com --noproxy *')" -eq 2 ]
   # The checks run after the Sandbox has started.
   [ "$(sandbox_calls | grep -E '^(start|exec)' | head -2 | tail -1)" = "start podman4ai-hello-world" ]
 }
@@ -190,6 +192,34 @@ start podman4ai-hello-world" ]
   [[ "$output" == *"github.com"* ]]
   [[ "$output" == *"p4a podman logs podman4ai-hello-world-proxy"* ]]
   sandbox_calls | has_line "stop podman4ai-hello-world podman4ai-hello-world-proxy"
+}
+
+@test "start fails, and leaves nothing running, if the Sandbox can reach a domain not on the Allowlist directly" {
+  hello_world_exists
+  fake_podman "--connection podman4ai exec podman4ai-hello-world curl https://example.com --noproxy" --exit 0
+  run p4a start hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"self-check failed"* ]]
+  [[ "$output" == *"example.com"*"directly"* ]]
+  sandbox_calls | has_line "stop podman4ai-hello-world podman4ai-hello-world-proxy"
+}
+
+@test "a self-check failure is reported even if stopping the Sandbox fails too" {
+  hello_world_exists
+  fake_podman "--connection podman4ai exec podman4ai-hello-world curl https://github.com" --exit 7
+  fake_podman "--connection podman4ai stop" --exit 125
+  run p4a start hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"self-check failed"* ]]
+}
+
+@test "new stops, creating nothing, if podman can't say whether a part already exists" {
+  sandbox_machine_running
+  fake_podman "--connection podman4ai volume exists" --exit 125
+  run p4a new octo/hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"couldn't check whether the volume podman4ai-hello-world-source exists"* ]]
+  [ -z "$(sandbox_calls | grep -E '^(create|volume create|network create|rm|volume rm|network rm)')" ]
 }
 
 @test "start fails, and leaves nothing running, if the Sandbox can reach a domain not on the Allowlist" {
@@ -211,7 +241,7 @@ start podman4ai-hello-world" ]
   has_line "start podman4ai-hello-world" <<< "$calls"
   has_line "exec --env GIT_TERMINAL_PROMPT=0 podman4ai-hello-world git clone https://github.com/octo/Hello-World.git /workspace/Hello-World" <<< "$calls"
   # The clone comes after the self-check.
-  (( $(grep -n 'curl https://example.com' <<< "$calls" | cut -d: -f1) < $(grep -n 'git clone' <<< "$calls" | cut -d: -f1) ))
+  (( $(grep -n 'curl https://example.com' <<< "$calls" | tail -1 | cut -d: -f1) < $(grep -n 'git clone' <<< "$calls" | cut -d: -f1) ))
   [[ "$output" == *"p4a shell hello-world"* ]]
 }
 

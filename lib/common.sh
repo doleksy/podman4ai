@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Shared helpers for p4a: messages and errors.
+# Shared helpers for p4a: messages, errors and reading Allowlist files.
 
 # p4a_die MESSAGE [FIX]
 # Exit 1 with what went wrong and, when known, how to fix it.

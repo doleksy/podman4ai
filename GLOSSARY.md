@@ -48,6 +48,10 @@ _Avoid_: custom image, child image
 The persistent storage holding one project's source, attached only to that project's Sandbox and outliving any individual Sandbox.
 _Avoid_: workspace, mount, checkout
 
+**Claude config volume**:
+The persistent storage holding one project's Agent settings, hooks and memory, attached only to that project's Sandbox, so an Agent can't plant anything that affects another project.
+_Avoid_: claude dir, home volume
+
 ### Work
 
 **Agent**:

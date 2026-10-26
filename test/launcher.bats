@@ -25,7 +25,7 @@ load helpers
 }
 
 @test "project commands with the wrong arguments fail with a usage error" {
-  for args in "new" "new not-a-repo" "new a/b c/d" "start" "stop a b" "shell hello-world git log"; do
+  for args in "new" "new not-a-repo" "new a/b c/d" "start" "stop a b" "shell" "shell hello-world git log"; do
     # shellcheck disable=SC2086
     run p4a $args
     [ "$status" -eq 2 ]

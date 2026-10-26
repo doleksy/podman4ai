@@ -11,13 +11,19 @@ P4A_SANDBOX_MEMORY=4g
 P4A_SANDBOX_CPUS=4
 P4A_SANDBOX_PIDS=4096
 
-# The hardening every Sandbox gets. Podman's default seccomp and SELinux
-# protections stay on because nothing here turns them off.
-P4A_SANDBOX_HARDENING=(
+# The hardening every project container (Sandbox and Egress proxy) gets.
+# Podman's default seccomp and SELinux protections stay on because nothing
+# here turns them off.
+P4A_CONTAINER_HARDENING=(
   --cap-drop=all
   --security-opt=no-new-privileges
-  --user=agent
 )
+# The Sandbox also runs as the Base image's non-root user.
+P4A_SANDBOX_HARDENING=("${P4A_CONTAINER_HARDENING[@]}" --user=agent)
+
+# Where the Project volume and Claude config volume appear in the Sandbox.
+P4A_PROJECT_VOLUME_PATH=/workspace
+P4A_CLAUDE_CONFIG_PATH=/home/agent/.claude
 
 # Each project's network is 10.89.N.0/24 for an N in this range, with its
 # Egress proxy at .2. (The image build uses 10.89.200.0/24.)
@@ -42,16 +48,21 @@ _p4a_projects_dir() {
   echo "$(p4a_config_dir)/projects"
 }
 
+# Project names: what p4a new makes from a repository's name.
+P4A_PROJECT_NAME_PATTERN='^[a-z0-9][a-z0-9._-]*$'
+
+# The project name for owner/REPO: the repository's name in lower case.
+_p4a_project_name() {
+  local name="${1#*/}"
+  echo "${name,,}"
+}
+
 # The Podman names of PROJECT's parts.
 _p4a_sandbox_name() { echo "podman4ai-$1"; }
 _p4a_proxy_name() { echo "podman4ai-$1-proxy"; }
 _p4a_network_name() { echo "podman4ai-$1"; }
-_p4a_source_volume_name() { echo "podman4ai-$1-source"; }
+_p4a_project_volume_name() { echo "podman4ai-$1-source"; }
 _p4a_claude_volume_name() { echo "podman4ai-$1-claude"; }
-
-# Where the Project volume and Claude config volume appear in the Sandbox.
-P4A_WORKSPACE=/workspace
-P4A_CLAUDE_CONFIG=/home/agent/.claude
 
 # _p4a_project_setting PROJECT KEY
 # Print one value from PROJECT's settings file (lines of key=value).
@@ -83,7 +94,7 @@ p4a_new() {
     || p4a_usage_error "new needs one GitHub repository as owner/repo" "p4a --help"
   local project
   project="$(_p4a_project_name "$repo")"
-  [[ $project =~ ^[a-z0-9][a-z0-9._-]*$ ]] \
+  [[ $project =~ $P4A_PROJECT_NAME_PATTERN ]] \
     || p4a_usage_error "'$repo' doesn't name a GitHub repository p4a can use" "p4a --help"
 
   local dir conf
@@ -94,42 +105,47 @@ p4a_new() {
 
   p4a_require_running_sandbox_machine
 
-  local network proxy sandbox source_volume claude_volume
+  local network proxy sandbox project_volume claude_volume
   network="$(_p4a_network_name "$project")"
   proxy="$(_p4a_proxy_name "$project")"
   sandbox="$(_p4a_sandbox_name "$project")"
-  source_volume="$(_p4a_source_volume_name "$project")"
+  project_volume="$(_p4a_project_volume_name "$project")"
   claude_volume="$(_p4a_claude_volume_name "$project")"
 
   # Parts with these names may be left from an earlier project of the same
   # name, possibly with unpushed work. Never reuse or remove them.
-  local kind name
-  for kind in volume:"$source_volume" volume:"$claude_volume" network:"$network" \
+  local part kind name status
+  for part in volume:"$project_volume" volume:"$claude_volume" network:"$network" \
       container:"$proxy" container:"$sandbox"; do
-    name="${kind#*:}"
-    if p4a_sandbox_podman "${kind%%:*}" exists "$name"; then
-      p4a_die "can't create the project $project: the ${kind%%:*} $name already exists in the Sandbox machine" \
-        "if nothing in it is needed, remove it with 'p4a podman ${kind%%:*} rm $name', then run 'p4a new $repo' again"
-    fi
+    kind="${part%%:*}" name="${part#*:}" status=0
+    p4a_sandbox_podman "$kind" exists "$name" || status=$?
+    case $status in
+      1) ;;
+      0) p4a_die "can't create the project $project: the $kind $name already exists in the Sandbox machine" \
+           "if nothing in it is needed, remove it with 'p4a podman $kind rm $name', then run 'p4a new $repo' again" ;;
+      *) p4a_die "couldn't check whether the $kind $name exists (podman exited with $status)" \
+           "check the Sandbox machine with 'p4a machine status', then run 'p4a new $repo' again" ;;
+    esac
   done
 
   local n
   mkdir -p "$dir"
   n="$(_p4a_free_subnet)"
   local subnet="10.89.$n.0/24" proxy_ip="10.89.$n.2"
-  local source_dir="$P4A_WORKSPACE/${repo#*/}"
+  local source_dir="$P4A_PROJECT_VOLUME_PATH/${repo#*/}"
   printf 'repo=%s\nsubnet=%s\nsource=%s\n' "$repo" "$subnet" "$source_dir" > "$conf"
-  # From here on, a failure removes everything this command created.
+  # From here on, a failure removes everything this command created. The
+  # name is expanded now, which is safe: it matches P4A_PROJECT_NAME_PATTERN.
   trap "_p4a_undo_new $project" EXIT
 
-  p4a_sandbox_podman volume create "$source_volume" >/dev/null
+  p4a_sandbox_podman volume create "$project_volume" >/dev/null
   p4a_sandbox_podman volume create "$claude_volume" >/dev/null
 
   p4a_sandbox_podman network create --internal --disable-dns \
     --subnet "$subnet" "$network" >/dev/null
 
   p4a_sandbox_podman create --name "$proxy" \
-    --cap-drop=all --security-opt=no-new-privileges \
+    "${P4A_CONTAINER_HARDENING[@]}" \
     --network podman --network "$network:ip=$proxy_ip" \
     --env "P4A_ALLOWLIST=$(p4a_read_allowlist "$P4A_HOME/share/default-allowlist")" \
     "$P4A_PROXY_IMAGE" >/dev/null
@@ -143,8 +159,8 @@ p4a_new() {
     --memory="$P4A_SANDBOX_MEMORY" --cpus="$P4A_SANDBOX_CPUS" --pids-limit="$P4A_SANDBOX_PIDS" \
     --network "$network" --dns=none --add-host "$P4A_PROXY_HOST:$proxy_ip" \
     "${proxy_env[@]}" \
-    --volume "$source_volume:$P4A_WORKSPACE" \
-    --volume "$claude_volume:$P4A_CLAUDE_CONFIG" \
+    --volume "$project_volume:$P4A_PROJECT_VOLUME_PATH" \
+    --volume "$claude_volume:$P4A_CLAUDE_CONFIG_PATH" \
     --init "$P4A_BASE_IMAGE" sleep infinity >/dev/null
 
   _p4a_start_project "$project"
@@ -168,14 +184,8 @@ _p4a_undo_new() {
   p4a_note "removing what was created for $project"
   p4a_sandbox_podman rm -f "$(_p4a_sandbox_name "$project")" "$(_p4a_proxy_name "$project")" >/dev/null 2>&1 || true
   p4a_sandbox_podman network rm -f "$(_p4a_network_name "$project")" >/dev/null 2>&1 || true
-  p4a_sandbox_podman volume rm -f "$(_p4a_source_volume_name "$project")" "$(_p4a_claude_volume_name "$project")" >/dev/null 2>&1 || true
+  p4a_sandbox_podman volume rm -f "$(_p4a_project_volume_name "$project")" "$(_p4a_claude_volume_name "$project")" >/dev/null 2>&1 || true
   rm -f "$(_p4a_projects_dir)/$project.conf"
-}
-
-# The project name for owner/REPO: the repository's name in lower case.
-_p4a_project_name() {
-  local name="${1#*/}"
-  echo "${name,,}"
 }
 
 # The project names that exist, one per line, sorted.
@@ -189,7 +199,7 @@ _p4a_known_projects() {
 # Exit with the known projects unless PROJECT exists.
 _p4a_require_project() {
   local project=$1 known
-  [[ -n $project && -f "$(_p4a_projects_dir)/$project.conf" ]] && return 0
+  [[ $project =~ $P4A_PROJECT_NAME_PATTERN && -f "$(_p4a_projects_dir)/$project.conf" ]] && return 0
   known="$(_p4a_known_projects | paste -sd ' ' -)"
   if [[ -z $known ]]; then
     p4a_die "unknown project '$project': there are no projects yet" "create one with 'p4a new <owner/repo>'"
@@ -228,8 +238,9 @@ _p4a_stop_project() {
 }
 
 # The Sandbox's startup check (ADR 0003): an allowlisted domain is reachable
-# through the Egress proxy and a domain not on the Allowlist is not. On
-# failure, stop the Sandbox and its proxy and exit.
+# through the Egress proxy, and a domain not on the Allowlist is reachable
+# neither through the proxy nor directly. On failure, stop the Sandbox and
+# its proxy and exit.
 P4A_SELF_CHECK_ALLOWED=github.com
 P4A_SELF_CHECK_REFUSED=example.com
 # The proxy may still be starting, so try the allowlisted domain this many
@@ -243,31 +254,37 @@ _p4a_self_check() {
   for (( i = 1; ; i++ )); do
     error="$(_p4a_probe "$sandbox" "$P4A_SELF_CHECK_ALLOWED" 2>&1)" && break
     if (( i == P4A_SELF_CHECK_TRIES )); then
-      _p4a_stop_project "$project"
+      _p4a_stop_project "$project" || true
       p4a_die "the Sandbox self-check failed: $P4A_SELF_CHECK_ALLOWED, which is on the Allowlist, isn't reachable through the Egress proxy (${error:-no error message}). $project was stopped." \
         "see the proxy's log with 'p4a podman logs $proxy'; rebuilding the images with 'p4a image build' may help"
     fi
     sleep 0.5
   done
-  if _p4a_probe "$sandbox" "$P4A_SELF_CHECK_REFUSED" >/dev/null 2>&1; then
-    _p4a_stop_project "$project"
-    p4a_die "the Sandbox self-check failed: it reached $P4A_SELF_CHECK_REFUSED, which isn't on the Allowlist, so its network isn't isolated. $project was stopped." \
-      "don't use this Sandbox; report this as a bug"
-  fi
+  local route direct
+  for route in "through the Egress proxy" "directly"; do
+    direct=()
+    [[ $route == directly ]] && direct=(--noproxy '*')
+    if _p4a_probe "$sandbox" "$P4A_SELF_CHECK_REFUSED" "${direct[@]}" >/dev/null 2>&1; then
+      _p4a_stop_project "$project" || true
+      p4a_die "the Sandbox self-check failed: it reached $P4A_SELF_CHECK_REFUSED, which isn't on the Allowlist, $route, so its network isn't isolated. $project was stopped." \
+        "don't use this Sandbox; report this as a bug"
+    fi
+  done
 }
 
-# _p4a_probe SANDBOX DOMAIN
+# _p4a_probe SANDBOX DOMAIN [CURL_OPTION...]
 # Succeed if SANDBOX can fetch https://DOMAIN; print curl's error if not.
 _p4a_probe() {
-  p4a_sandbox_podman exec "$1" curl "https://$2" --silent --show-error --output /dev/null --max-time 10
+  p4a_sandbox_podman exec "$1" curl "https://$2" "${@:3}" --silent --show-error --output /dev/null --max-time 10
 }
 
 # p4a shell PROJECT [-- COMMAND...]
 # Open a login shell in PROJECT's Sandbox, or run one command there and
 # exit with its exit code. Either way, in the project's source folder.
 p4a_shell() {
-  local project="${1:-}"
-  (( $# )) && shift
+  (( $# )) || p4a_usage_error "shell needs a project name" "p4a --help"
+  local project=$1
+  shift
   if (( $# )); then
     [[ $1 == -- ]] || p4a_usage_error "shell takes a project name, then optionally -- and a command" "p4a --help"
     shift
@@ -275,17 +292,22 @@ p4a_shell() {
   _p4a_require_project "$project"
   p4a_require_running_sandbox_machine
 
-  local sandbox running
+  local sandbox running source_dir
   sandbox="$(_p4a_sandbox_name "$project")"
-  running="$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$sandbox")"
+  running="$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$sandbox")" \
+    || p4a_die "couldn't find the Sandbox $sandbox for $project" \
+      "check what exists with 'p4a podman ps -a'"
   [[ $running == true ]] \
     || p4a_die "the Sandbox for $project isn't running" "start it with 'p4a start $project'"
+  source_dir="$(_p4a_project_setting "$project" source)" \
+    || p4a_die "the settings for $project don't say where its source is" \
+      "add a line 'source=/workspace/<repo>' to $(_p4a_projects_dir)/$project.conf"
 
   local tty=()
   [[ -t 0 && -t 1 ]] && tty=(-t)
   (( $# )) || set -- bash -l
   local status=0
-  p4a_sandbox_podman exec -i "${tty[@]}" -w "$(_p4a_project_setting "$project" source)" "$sandbox" "$@" \
+  p4a_sandbox_podman exec -i "${tty[@]}" -w "$source_dir" "$sandbox" "$@" \
     || status=$?
   return "$status"
 }
