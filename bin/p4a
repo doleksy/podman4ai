@@ -10,13 +10,16 @@ source "$P4A_HOME/lib/common.sh"
 source "$P4A_HOME/lib/podman.sh"
 # shellcheck source=../lib/machine.sh
 source "$P4A_HOME/lib/machine.sh"
+# shellcheck source=../lib/image.sh
+source "$P4A_HOME/lib/image.sh"
 
 main() {
   local command="${1:-}"
   case $command in
     "" | -h | --help | help) p4a_usage ;;
     machine) shift; p4a_machine "$@" ;;
-    podman) shift; p4a_podman --connection "$P4A_MACHINE" "$@" ;;
+    image) shift; p4a_image "$@" ;;
+    podman) shift; p4a_sandbox_podman "$@" ;;
     *) p4a_usage_error "unknown command '$command'" "p4a --help" ;;
   esac
 }
@@ -30,6 +33,7 @@ podman4ai Launcher: runs each project's Agents in its own isolated Sandbox.
 Commands:
   p4a machine <command>   create, start, stop or check the Sandbox machine
                           (see: p4a machine --help)
+  p4a image build         build the Egress proxy and Base images
   p4a podman <args>...    run any podman command against the Sandbox machine
   p4a --help              show this help
 EOF

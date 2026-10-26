@@ -29,8 +29,18 @@ p4a machine create   create the Sandbox machine (Hyper-V, 12 GB, 6 CPUs, 200 GB,
 p4a machine start    start it (stop any other running Podman machine first)
 p4a machine stop     stop it
 p4a machine status   show whether it exists and is running
+p4a image build      build the Egress proxy image, then the Base image through it
 p4a podman <args>    run any podman command against the Sandbox machine
 ```
+
+### Images
+
+`p4a image build` needs the Sandbox machine running. It builds two images:
+
+- `localhost/podman4ai-proxy`, the Egress proxy (`images/proxy/`). Its own build has no network.
+- `localhost/podman4ai-base`, the Base image (`images/base/`): Debian bookworm with git, curl and Claude Code, a non-root user `agent`, and no sudo. It's rebuilt from scratch each time, so it gets the latest OS patches and Claude Code.
+
+The Base image build has no open internet. Its only way out is an Egress proxy that allows just the domains in [`share/build-allowlist`](share/build-allowlist) (ADR 0003, ADR 0005). Afterwards `p4a` lists the domains the proxy allowed and refused. The full log stays in the stopped proxy container until the next build: `p4a podman logs podman4ai-build-proxy`. If a build fails because a domain was refused, and that domain should be allowed, add it to `share/build-allowlist`.
 
 `p4a` selects the Hyper-V provider and the Sandbox machine for its own Podman calls only. Plain `podman` in other shells keeps using its default machine.
 
@@ -41,3 +51,13 @@ test/run.sh
 ```
 
 The tests need Bash and Node, never a real Podman. They run real `p4a` commands against a stand-in `podman` (`test/fake/`) that records each call, with all Host settings in a temporary folder. `test/run.sh` uses `bats` from PATH, or fetches a pinned version with `npx`. Pass `.bats` files to run just those, e.g. `test/run.sh test/machine.bats`.
+
+The Egress proxy tests (`test/proxy.bats`) run the real proxy under Node on the Host, against a stand-in web server on localhost.
+
+### Host-only checks
+
+These run against the real Sandbox machine, which must be running, and take several minutes:
+
+```bash
+test/host/image-build.sh   # bad build step refused, build log clean, no sudo, non-root
+```

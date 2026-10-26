@@ -22,6 +22,10 @@ _Avoid_: devcontainer, box, VM, environment
 The set of network destinations a Sandbox may reach; everything else is blocked. A shared default plus per-project additions.
 _Avoid_: whitelist, firewall rules
 
+**Build Allowlist**:
+The Allowlist for building the Base image (Debian mirrors, Claude Code's installer), kept in podman4ai's own configuration and separate from any Sandbox's Allowlist.
+_Avoid_: build whitelist
+
 **Launcher**:
 podman4ai's Host-side command that creates, starts, enters and removes Sandboxes. The sole authority on how a Sandbox is configured.
 _Avoid_: CLI, wrapper, script, devcontainer

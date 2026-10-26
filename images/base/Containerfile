@@ -1,0 +1,36 @@
+# The Base image every Sandbox starts from. Minimal for now: fuller tooling
+# comes later.
+#
+# Built only by `p4a image build`, on a network whose only way out is an
+# Egress proxy loaded with the build Allowlist (share/build-allowlist). The
+# proxy settings arrive as build arguments, which Podman passes to RUN steps
+# without storing them in the image.
+FROM docker.io/library/debian:bookworm-slim
+
+# Latest OS patches, the basic tools, and the non-root user Agents run as.
+RUN apt-get update \
+ && apt-get upgrade -y \
+ && apt-get install -y --no-install-recommends ca-certificates curl git \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --create-home --uid 1000 --shell /bin/bash agent
+
+# No sudo, so an Agent can never become root. Fail the build if a package
+# ever brings it in.
+RUN if command -v sudo; then echo "sudo must not be in the Base image" >&2; exit 1; fi
+
+USER agent
+WORKDIR /home/agent
+
+# Self-updater off: Claude Code updates only when the image is rebuilt.
+# Telemetry and error reporting off too.
+ENV PATH="/home/agent/.local/bin:${PATH}" \
+    DISABLE_AUTOUPDATER=1 \
+    DISABLE_TELEMETRY=1 \
+    DISABLE_ERROR_REPORTING=1
+
+# Claude Code via the native installer. Without the non-essential traffic
+# setting the installer also calls api.anthropic.com, which isn't on the
+# build Allowlist (the call is refused, and the install works either way).
+RUN curl -fsSL https://claude.ai/install.sh | CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 bash
+
+CMD ["bash"]

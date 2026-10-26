@@ -1,0 +1,12 @@
+# The build Allowlist: the only domains the Base image build may reach,
+# through the Egress proxy that `p4a image build` starts (ADR 0003).
+# One domain per line; "*.example.com" allows any subdomain of example.com.
+# Kept here, not in either image, so only a reviewed change to podman4ai
+# can widen it.
+
+# Debian packages and security updates (apt, plain HTTP)
+deb.debian.org
+
+# Claude Code's native installer and its downloads
+claude.ai
+downloads.claude.ai
