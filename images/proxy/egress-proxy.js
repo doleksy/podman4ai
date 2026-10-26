@@ -79,6 +79,8 @@ const server = http.createServer((req, res) => {
   log("allowed", req.method, target);
   const headers = { ...req.headers };
   for (const name of HOP_BY_HOP) delete headers[name];
+  // The server sees the host that was checked, whatever the client sent.
+  headers.host = url.host;
   const upstream = http.request(
     { host: url.hostname, port, method: req.method, path: url.pathname + url.search, headers },
     (upstreamRes) => {

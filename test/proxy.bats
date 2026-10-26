@@ -122,3 +122,10 @@ load proxy-helpers
   [[ "${lines[0]}" == "HTTP/1.1 200 "* ]]
   kill -0 "$PROXY_PID"
 }
+
+@test "an HTTP request reaches the server with the Host it was checked against, not one the client slipped in" {
+  start_proxy "localhost"
+  run through_proxy raw "GET http://localhost:$UPSTREAM_PORT/x HTTP/1.1\r\nHost: other-site.example\r\nConnection: close\r\n\r\n"
+  [[ "${lines[0]}" == "HTTP/1.1 200 "* ]]
+  [[ "$output" == *"host=localhost:$UPSTREAM_PORT"* ]]
+}

@@ -19,7 +19,7 @@ pass() { echo "PASS  $*"; }
 fail() { echo "FAIL  $*"; failures=$((failures + 1)); }
 
 # The build Allowlist, one domain per line, sorted.
-build_allowlist="$(grep -v -e '^#' -e '^[[:space:]]*$' "$repo/share/build-allowlist" | sort)"
+build_allowlist="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$repo/share/build-allowlist" | grep -v '^$' | sort)"
 
 # Print the domains on the "NAME: domain domain..." line of p4a's report.
 reported() {

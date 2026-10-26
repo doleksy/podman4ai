@@ -62,6 +62,15 @@ _p4a_require_sandbox_machine() {
     || p4a_die "the Sandbox machine $P4A_MACHINE doesn't exist yet" "create it with 'p4a machine create'"
 }
 
+# Exit with the fix unless the Sandbox machine exists and is running. For
+# commands that work inside it.
+p4a_require_running_sandbox_machine() {
+  _p4a_read_machines
+  _p4a_require_sandbox_machine
+  [[ $P4A_SANDBOX_STATE == running ]] \
+    || p4a_die "the Sandbox machine $P4A_MACHINE isn't running" "start it with 'p4a machine start'"
+}
+
 p4a_machine_create() {
   _p4a_read_machines
   [[ $P4A_SANDBOX_STATE == missing ]] \

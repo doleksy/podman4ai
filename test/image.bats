@@ -6,12 +6,14 @@ load helpers
 
 BUILD_NETNS=/run/user/1000/netns/netns-build-test
 
-# The Sandbox machine is running, and the container holding the build's
-# network namespace reports where that namespace is.
+# The Sandbox machine is running, the Egress proxy is listening, and the
+# container holding the build's network namespace reports where it is.
 build_can_run() {
   machines "podman4ai hyperv running"
   fake_podman "--connection podman4ai inspect --format {{.NetworkSettings.SandboxKey}} podman4ai-build-netns" \
     --stdout "$BUILD_NETNS"
+  fake_podman "--connection podman4ai logs podman4ai-build-proxy" \
+    --stdout "2026-10-25T23:04:46.000Z listening on port 8888"
 }
 
 # The calls p4a made to Podman inside the Sandbox machine, without the
@@ -27,7 +29,7 @@ call_number() {
 
 # The build Allowlist as configured in podman4ai, one domain per line.
 configured_build_allowlist() {
-  grep -v -e '^#' -e '^[[:space:]]*$' "$P4A_REPO/share/build-allowlist"
+  sed -e 's/#.*//' -e 's/[[:space:]]//g' "$P4A_REPO/share/build-allowlist" | grep -v '^$'
 }
 
 # The Allowlist p4a gave the Egress proxy, one domain per line.
@@ -135,9 +137,10 @@ PROXY_LOG_WITH_REFUSAL='2026-10-25T23:04:46.000Z listening on port 8888
 2026-10-25T23:04:50.100Z allowed CONNECT claude.ai:443
 2026-10-25T23:04:51.100Z allowed CONNECT downloads.claude.ai:443
 2026-10-25T23:04:52.100Z refused CONNECT example.com:443 not on the Allowlist
+2026-10-25T23:04:52.200Z refused GET / not a proxy request
 2026-10-25T23:04:53.100Z failed CONNECT downloads.claude.ai:443 ECONNRESET'
 
-@test "after the build, p4a lists the domains the Egress proxy allowed and refused" {
+@test "after the build, p4a lists the domains the Egress proxy allowed and refused, and only domains" {
   build_can_run
   proxy_logged "$PROXY_LOG_WITH_REFUSAL"
   run p4a image build
@@ -185,4 +188,22 @@ PROXY_LOG_WITH_REFUSAL='2026-10-25T23:04:46.000Z listening on port 8888
   [ "$status" -eq 1 ]
   [[ "$output" == *"p4a machine create"* ]]
   [ -z "$(sandbox_calls)" ]
+}
+
+@test "the Base image build waits for the Egress proxy to be listening" {
+  build_can_run
+  run p4a image build
+  [ "$status" -eq 0 ]
+  (( $(call_number "logs podman4ai-build-proxy") < $(call_number "build .*podman4ai-base") ))
+}
+
+@test "image build gives up, without building the Base image, if the Egress proxy never starts listening" {
+  build_can_run
+  fake_podman "--connection podman4ai logs podman4ai-build-proxy" --stdout "node: something went wrong"
+  run p4a image build
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"the build's Egress proxy didn't start"* ]]
+  [[ "$output" == *"node: something went wrong"* ]]
+  [ -z "$(sandbox_calls | grep '^build .*podman4ai-base')" ]
+  podman_calls | grep -q "rm -f podman4ai-build-proxy podman4ai-build-netns$"
 }

@@ -19,7 +19,7 @@ P4A_BUILD_PROXY_URL=http://egress-proxy:8888
 # Rootless Podman can't attach a build to a named network ("cannot use
 # networks as rootless"). Instead the build joins the network namespace of
 # this idle container, which is on the build network only.
-P4A_BUILD_NETNS=podman4ai-build-netns
+P4A_BUILD_NETNS_HOLDER=podman4ai-build-netns
 
 p4a_image() {
   local command="${1:-}"
@@ -52,17 +52,14 @@ _p4a_build_allowlist() {
 }
 
 p4a_image_build() {
-  _p4a_read_machines
-  _p4a_require_sandbox_machine
-  [[ $P4A_SANDBOX_STATE == running ]] \
-    || p4a_die "the Sandbox machine $P4A_MACHINE isn't running" "start it with 'p4a machine start'"
+  p4a_require_running_sandbox_machine
 
   p4a_sandbox_podman build --network none \
     -t "$P4A_PROXY_IMAGE" "$(p4a_native_path "$P4A_HOME/images/proxy")"
 
   # Start from a fresh build network, so its settings are always these.
   # This also removes the previous build's proxy and namespace holder.
-  p4a_sandbox_podman rm -f "$P4A_BUILD_PROXY" "$P4A_BUILD_NETNS" >/dev/null
+  p4a_sandbox_podman rm -f "$P4A_BUILD_PROXY" "$P4A_BUILD_NETNS_HOLDER" >/dev/null
   p4a_sandbox_podman network rm -f "$P4A_BUILD_NETWORK" >/dev/null
   p4a_sandbox_podman network create --internal --disable-dns \
     --subnet "$P4A_BUILD_SUBNET" "$P4A_BUILD_NETWORK" >/dev/null
@@ -71,11 +68,12 @@ p4a_image_build() {
     --network podman --network "$P4A_BUILD_NETWORK:ip=$P4A_BUILD_PROXY_IP" \
     -e "P4A_ALLOWLIST=$(_p4a_build_allowlist)" \
     "$P4A_PROXY_IMAGE" >/dev/null
-  p4a_sandbox_podman run -d --name "$P4A_BUILD_NETNS" \
+  _p4a_wait_for_build_proxy
+  p4a_sandbox_podman run -d --name "$P4A_BUILD_NETNS_HOLDER" \
     --network "$P4A_BUILD_NETWORK" \
     "$P4A_PROXY_IMAGE" sleep infinity >/dev/null
   local netns
-  netns="$(p4a_sandbox_podman inspect --format '{{.NetworkSettings.SandboxKey}}' "$P4A_BUILD_NETNS")"
+  netns="$(p4a_sandbox_podman inspect --format '{{.NetworkSettings.SandboxKey}}' "$P4A_BUILD_NETNS_HOLDER")"
 
   local var proxy_args=()
   for var in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do
@@ -92,13 +90,27 @@ p4a_image_build() {
     || built=false
 
   # Keep the stopped proxy until the next build, so its log can be read.
-  p4a_sandbox_podman rm -f "$P4A_BUILD_NETNS" >/dev/null
+  p4a_sandbox_podman rm -f "$P4A_BUILD_NETNS_HOLDER" >/dev/null
   p4a_sandbox_podman stop -t 2 "$P4A_BUILD_PROXY" >/dev/null
   _p4a_report_build_domains
 
   $built || p4a_die "the Base image build failed" \
     "see the build output above; if it needed a refused domain, and that domain should be allowed, add it to $P4A_HOME/share/build-allowlist"
   echo "Built $P4A_PROXY_IMAGE and $P4A_BASE_IMAGE."
+}
+
+# Wait until the build proxy is listening, so the first build step doesn't
+# find nothing there. Give up after about 10 seconds.
+_p4a_wait_for_build_proxy() {
+  local log i
+  for (( i = 0; i < 20; i++ )); do
+    log="$(p4a_sandbox_podman logs "$P4A_BUILD_PROXY" 2>&1 || true)"
+    [[ $log == *"listening on port"* ]] && return 0
+    sleep 0.5
+  done
+  p4a_sandbox_podman rm -f "$P4A_BUILD_PROXY" "$P4A_BUILD_NETNS_HOLDER" >/dev/null
+  p4a_die "the build's Egress proxy didn't start. Its log: ${log:-(empty)}" \
+    "rebuild the proxy image with 'p4a image build'; if this keeps happening, report it as a bug"
 }
 
 # Summarise the build proxy's log: which domains it allowed and refused.
@@ -115,10 +127,12 @@ _p4a_report_build_domains() {
 
 # Read Egress proxy log lines on stdin and print, space separated and
 # sorted, the domains of the lines with this VERDICT (allowed or refused).
+# Requests too malformed to name a domain are left out.
 _p4a_logged_domains() {
   local _time verdict _method target _rest domains=()
   while read -r _time verdict _method target _rest; do
-    [[ $verdict == "$1" ]] && domains+=("${target%:*}")
+    [[ $verdict == "$1" && $target =~ ^([a-z0-9.-]+):[0-9]+$ ]] \
+      && domains+=("${BASH_REMATCH[1]}")
   done
   (( ${#domains[@]} )) || return 0
   printf '%s\n' "${domains[@]}" | sort -u | paste -sd ' ' -
