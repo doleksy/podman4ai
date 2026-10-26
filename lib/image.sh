@@ -42,13 +42,7 @@ EOF
 
 # Print the build Allowlist's domains, separated by spaces.
 _p4a_build_allowlist() {
-  local line domains=()
-  while IFS= read -r line || [[ -n $line ]]; do
-    line="${line%%#*}"
-    line="${line//[[:space:]]/}"
-    [[ -n $line ]] && domains+=("$line")
-  done < "$P4A_HOME/share/build-allowlist"
-  echo "${domains[*]}"
+  p4a_read_allowlist "$P4A_HOME/share/build-allowlist"
 }
 
 p4a_image_build() {

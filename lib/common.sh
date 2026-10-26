@@ -20,3 +20,16 @@ p4a_usage_error() {
 p4a_note() {
   echo "p4a: $*" >&2
 }
+
+# p4a_read_allowlist FILE
+# Print the domains in an Allowlist file, separated by spaces. The file has
+# one domain per line; "#" starts a comment.
+p4a_read_allowlist() {
+  local line domains=()
+  while IFS= read -r line || [[ -n $line ]]; do
+    line="${line%%#*}"
+    line="${line//[[:space:]]/}"
+    [[ -n $line ]] && domains+=("$line")
+  done < "$1"
+  echo "${domains[*]}"
+}

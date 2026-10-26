@@ -30,8 +30,30 @@ p4a machine start    start it (stop any other running Podman machine first)
 p4a machine stop     stop it
 p4a machine status   show whether it exists and is running
 p4a image build      build the Egress proxy image, then the Base image through it
+p4a new <owner/repo> create a project from a public GitHub repo, and start its Sandbox
+p4a start <project>  start a project's Egress proxy and Sandbox, then run the self-check
+p4a stop <project>   stop a project's Sandbox and Egress proxy
+p4a shell <project>  open a shell in a project's Sandbox, in its source folder
+p4a shell <project> -- <command>...
+                     run one command there and return its exit code
 p4a podman <args>    run any podman command against the Sandbox machine
 ```
+
+### Projects
+
+`p4a new octo/hello-world` creates the project `hello-world` (the repository's name in lower case). It needs the Sandbox machine running and both images built (rebuild any images made before `p4a new` existed: the Sandbox needs folders they lack). The project has:
+
+- a Project volume, `podman4ai-hello-world-source`, mounted at `/workspace`, with the repo cloned over HTTPS to `/workspace/hello-world` (public repos only for now)
+- a Claude config volume, `podman4ai-hello-world-claude`, mounted at `/home/agent/.claude`
+- an internal network, `podman4ai-hello-world`, with no route out and no DNS, and its own subnet
+- an Egress proxy, `podman4ai-hello-world-proxy`, loaded with the default Allowlist ([`share/default-allowlist`](share/default-allowlist))
+- the Sandbox, `podman4ai-hello-world`, on that network only. It runs as the non-root user `agent` with all capabilities dropped, no-new-privileges, Podman's default seccomp and SELinux, no Podman socket and no Host paths, and is limited to 4 GB memory, 4 CPUs and 4096 processes.
+
+Every start runs a self-check from inside the Sandbox: `github.com` must be reachable through the Egress proxy and `example.com` must not be. If either check fails, `p4a` stops the Sandbox and its proxy and says why.
+
+If `p4a new` fails partway, it removes what it created, so you can run it again. It never reuses or removes a volume, network or container that already had the project's name.
+
+A project's Host settings are in `%APPDATA%\podman4ai\projects\<project>.conf` (or `$P4A_CONFIG_DIR/projects`).
 
 ### Images
 
