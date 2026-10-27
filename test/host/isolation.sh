@@ -41,8 +41,10 @@ B="$(basename "${REPO_B,,}")"
 projects_dir() {
   if [[ -n ${P4A_CONFIG_DIR:-} ]]; then
     echo "$P4A_CONFIG_DIR/projects"
-  else
+  elif [[ -n ${APPDATA:-} ]]; then
     echo "$(cygpath -u "$APPDATA")/podman4ai/projects"
+  else
+    echo "${XDG_CONFIG_HOME:-$HOME/.config}/podman4ai/projects"
   fi
 }
 
@@ -68,8 +70,14 @@ script_in() {
 
 # How many lines of PROJECT's Egress proxy log contain TEXT.
 proxy_log_count() {
-  p4a podman logs "podman4ai-$1-proxy" 2>&1 | grep -cF -- "$2" || true
+  local log
+  log="$(p4a podman logs "podman4ai-$1-proxy" 2>&1)" \
+    || { echo "couldn't read the Egress proxy's log: $log" >&2; return 1; }
+  grep -cF -- "$2" <<< "$log" || true
 }
+
+# The port every Egress proxy listens on (see README, "Projects").
+PROXY_PORT=8888
 
 # The IP addresses of a container on all its networks.
 addresses_of() {
@@ -122,18 +130,29 @@ refuse_existing_projects() {
 # Remove both throwaway projects and check nothing is left. Runs on every
 # exit, after refuse_existing_projects has proven every part is ours.
 cleanup() {
-  local status=$? project part left=()
+  local status=$? project part kind name exists left=()
   trap - EXIT INT TERM HUP
   echo "--- Removing the throwaway projects"
   for project in "$A" "$B"; do
-    p4a podman rm -f -t 0 "podman4ai-$project" "podman4ai-$project-proxy" >/dev/null 2>&1
-    p4a podman network rm -f "podman4ai-$project" >/dev/null 2>&1
-    p4a podman volume rm -f "podman4ai-$project-source" "podman4ai-$project-claude" >/dev/null 2>&1
+    # project_parts lists containers first, then the network and volumes
+    # they use, so each removal is free to go ahead.
+    for part in $(project_parts "$project"); do
+      kind="${part%%:*}" name="${part#*:}"
+      if [[ $kind == container ]]; then
+        p4a podman rm -f -t 0 "$name" >/dev/null 2>&1
+      else
+        p4a podman "$kind" rm -f "$name" >/dev/null 2>&1
+      fi
+      exists=0
+      p4a podman "$kind" exists "$name" || exists=$?
+      case $exists in
+        0) left+=("the $kind $name") ;;
+        1) ;;
+        *) left+=("the $kind $name (couldn't check: podman exited with $exists)") ;;
+      esac
+    done
     rm -f "$(projects_dir)/$project.conf"
     [[ ! -e "$(projects_dir)/$project.conf" ]] || left+=("$(projects_dir)/$project.conf")
-    for part in $(project_parts "$project"); do
-      p4a podman "${part%%:*}" exists "${part#*:}" && left+=("the ${part%%:*} ${part#*:}")
-    done
   done
   if (( ${#left[@]} )); then
     echo "FAIL  cleanup: these were left behind:"
@@ -193,12 +212,12 @@ EOF
 REFUSED_DOMAIN=example.org
 non_allowlisted_domain_is_refused_and_logged() {
   local before after
-  before="$(proxy_log_count "$A" "refused CONNECT $REFUSED_DOMAIN:443")"
+  before="$(proxy_log_count "$A" "refused CONNECT $REFUSED_DOMAIN:443")" || return 1
   if in_sandbox "$A" curl -sS -o /dev/null --max-time 10 "https://$REFUSED_DOMAIN"; then
     echo "$REFUSED_DOMAIN was reachable through the Egress proxy"
     return 1
   fi
-  after="$(proxy_log_count "$A" "refused CONNECT $REFUSED_DOMAIN:443")"
+  after="$(proxy_log_count "$A" "refused CONNECT $REFUSED_DOMAIN:443")" || return 1
   if (( after <= before )); then
     echo "the Egress proxy's log has no refusal of $REFUSED_DOMAIN"
     return 1
@@ -213,9 +232,9 @@ non_allowlisted_domain_is_refused_and_logged() {
 ALLOWED_DOMAIN=api.github.com
 allowlisted_domain_works_through_proxy() {
   local before after
-  before="$(proxy_log_count "$A" "allowed CONNECT $ALLOWED_DOMAIN:443")"
+  before="$(proxy_log_count "$A" "allowed CONNECT $ALLOWED_DOMAIN:443")" || return 1
   in_sandbox "$A" curl -sS -o /dev/null --max-time 20 "https://$ALLOWED_DOMAIN" || return 1
-  after="$(proxy_log_count "$A" "allowed CONNECT $ALLOWED_DOMAIN:443")"
+  after="$(proxy_log_count "$A" "allowed CONNECT $ALLOWED_DOMAIN:443")" || return 1
   if (( after <= before )); then
     echo "$ALLOWED_DOMAIN was reached, but the Egress proxy's log doesn't show it allowing it"
     return 1
@@ -245,9 +264,9 @@ EOF
 }
 
 # The only mounts are the container's own system files and the project's
-# two volumes; nothing is shared from the Host or the Sandbox machine.
+# own two volumes; nothing is shared from the Host or the Sandbox machine.
 no_host_path_is_visible() {
-  script_in "$A" <<'EOF'
+  script_in "$A" "$A" <<'EOF'
 status=0
 while read -r _ _ _ root point rest; do
   fstype="${rest#* - }"
@@ -260,8 +279,8 @@ while read -r _ _ _ root point rest; do
     / | /proc | /proc/* | /sys | /sys/* | /dev | /dev/*) ;;
     /etc/hosts | /etc/hostname | /etc/resolv.conf | /run/.containerenv | /run/secrets | /run/podman-init) ;;
     /workspace | /home/agent/.claude)
-      [[ $root == */containers/storage/volumes/podman4ai-*/_data ]] \
-        || { echo "$point comes from $root, not a project volume"; status=1; } ;;
+      [[ $root == */containers/storage/volumes/podman4ai-"$1"-*/_data ]] \
+        || { echo "$point comes from $root, not one of $1's volumes"; status=1; } ;;
     *) echo "unexpected mount $point, from $root ($fstype)"; status=1 ;;
   esac
 done < /proc/self/mountinfo
@@ -290,7 +309,7 @@ EOF
 
 user_has_no_sudo() {
   script_in "$A" <<'EOF'
-found="$(command -v sudo; find / -xdev -name sudo 2>/dev/null)"
+found="$(command -v sudo; find / -xdev -name sudo \( -type f -o -type l \) 2>/dev/null)"
 [[ -z $found ]] || { echo "sudo found: $found"; exit 1; }
 EOF
 }
@@ -331,7 +350,7 @@ EOF
 sandbox_a_cannot_reach_b() {
   local targets=() ip
   for ip in $(addresses_of "podman4ai-$B"); do targets+=("$ip:$LISTENER_PORT"); done
-  for ip in $(addresses_of "podman4ai-$B-proxy"); do targets+=("$ip:8888"); done
+  for ip in $(addresses_of "podman4ai-$B-proxy"); do targets+=("$ip:$PROXY_PORT"); done
   (( ${#targets[@]} )) || { echo "couldn't find B's addresses"; return 1; }
   script_in "$A" "${targets[@]}" <<'EOF'
 status=0
@@ -349,11 +368,14 @@ EOF
 }
 
 # Fork sleeping children until fork fails, up to a bound just above the
-# limit, then kill them all. Passes if fork failed below 4096 processes.
+# limit, then kill them all. Passes if the Sandbox's process limit is at
+# most 4096 and fork failed when the Sandbox reached it, not before (which
+# would mean something else stopped it).
 PROCESS_LIMIT=4096
 process_limit_is_in_effect() {
-  local out
+  local out max forked
   out="$(script_in "$A" "$PROCESS_LIMIT" <<'EOF'
+cat /sys/fs/cgroup/pids.max
 perl -e '
   my ($limit, @kids) = ($ARGV[0]);
   for (1 .. $limit + 100) {
@@ -368,9 +390,14 @@ perl -e '
 ' "$1"
 EOF
 )" || { echo "the fork test didn't finish: $out"; return 1; }
-  [[ $out =~ ^[0-9]+$ ]] || { echo "unexpected output: $out"; return 1; }
-  (( out < PROCESS_LIMIT )) \
-    || { echo "forked $out processes without hitting a limit of $PROCESS_LIMIT"; return 1; }
+  { read -r max; read -r forked; } <<< "$out"
+  [[ $forked =~ ^[0-9]+$ ]] || { echo "unexpected output: $out"; return 1; }
+  [[ $max =~ ^[0-9]+$ ]] || { echo "the Sandbox has no process limit (pids.max is $max)"; return 1; }
+  (( max <= PROCESS_LIMIT )) || { echo "the process limit is $max, above $PROCESS_LIMIT"; return 1; }
+  (( forked < max )) || { echo "forked $forked processes without hitting the limit of $max"; return 1; }
+  # A few processes (init, sleep, the shell, perl) already count.
+  (( forked >= max - 20 )) \
+    || { echo "fork failed after $forked processes, well below the limit of $max"; return 1; }
 }
 
 # Allocate and fill memory in 64 MiB steps up to 4.5 GiB. With a 4 GiB
@@ -380,35 +407,34 @@ EOF
 # The Sandbox machine's kernel log must then show the kill was by the
 # Sandbox's own memory limit: a kill because the whole machine ran out of
 # memory looks the same from inside but proves nothing. (The limit is on a
-# parent cgroup the Sandbox can't see, so it can't tell from inside.) If the
-# whole machine ran out first, try once more: by then Hyper-V has usually
-# given it more memory.
+# parent cgroup the Sandbox can't see, so it can't tell from inside.) That
+# fails at once rather than retrying, since running the whole machine out
+# of memory can kill processes in other containers.
 memory_limit_is_in_effect() {
-  local id try out status last new wait limit_kill
+  local id log last out status=0 new wait limit_kill
   id="$(p4a podman container inspect --format '{{.Id}}' "podman4ai-$A")" || return 1
   limit_kill="CONSTRAINT_MEMCG.*/libpod-$id\.scope"
-  for try in 1 2; do
-    last="$(oom_log | tail -n 1)"
-    status=0
-    out="$(in_sandbox "$A" perl -MTime::HiRes=sleep \
-      -e 'my @a; for (1 .. 72) { push @a, "x" x (64 << 20); sleep 0.25 } print "allocated\n"' 2>&1)" \
-      || status=$?
-    if [[ $out == *allocated* ]]; then
-      echo "allocated 4.5 GiB without hitting a memory limit"
+  log="$(oom_log)" || { echo "$log"; return 1; }
+  last="$(tail -n 1 <<< "$log")"
+  out="$(in_sandbox "$A" perl -MTime::HiRes=sleep \
+    -e 'my @a; for (1 .. 72) { push @a, "x" x (64 << 20); sleep 0.25 } print "allocated\n"' 2>&1)" \
+    || status=$?
+  if [[ $out == *allocated* ]]; then
+    echo "allocated 4.5 GiB without hitting a memory limit"
+    return 1
+  fi
+  # The kill can reach the log a moment after the Sandbox reports it.
+  for (( wait = 0; wait < 10; wait++ )); do
+    new="$(oom_log_after "$last")" || { echo "$new"; return 1; }
+    grep -qE -- "$limit_kill" <<< "$new" && return 0
+    if grep -q CONSTRAINT_NONE <<< "$new"; then
+      echo "the whole Sandbox machine ran out of memory before the Sandbox reached its limit."
+      echo "Hyper-V's dynamic memory may be keeping the machine too small; see 'Get-VMMemory podman4ai'."
       return 1
     fi
-    # The kill can reach the log a moment after the Sandbox reports it.
-    for (( wait = 0; wait < 10; wait++ )); do
-      new="$(oom_log_after "$last")" || return 1
-      grep -qE -- "$limit_kill" <<< "$new" && return 0
-      grep -q CONSTRAINT_NONE <<< "$new" && continue 2
-      sleep 1
-    done
-    echo "the allocation stopped (exit $status), but the kernel log shows no out-of-memory kill: $out"
-    return 1
+    sleep 1
   done
-  echo "the whole Sandbox machine ran out of memory twice before the Sandbox reached its limit."
-  echo "Hyper-V's dynamic memory may be keeping the machine too small; see 'Get-VMMemory podman4ai'."
+  echo "the allocation stopped (exit $status), but the kernel log shows no out-of-memory kill: $out"
   return 1
 }
 
