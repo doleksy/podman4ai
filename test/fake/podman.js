@@ -31,7 +31,12 @@ if (env.CONTAINERS_CONF_OVERRIDE) {
     conf = null;
   }
 }
-fs.appendFileSync(path.join(dir, "calls.jsonl"), JSON.stringify({ args, env, conf }) + "\n");
+// Secret values arrive on stdin. Read it only for `secret create`, so other
+// calls never wait on a terminal.
+const stdin = args.includes("secret") && args.includes("create") ? fs.readFileSync(0, "utf8") : null;
+// The whole environment too, so tests can check no secret leaked into it.
+const allEnv = { ...process.env };
+fs.appendFileSync(path.join(dir, "calls.jsonl"), JSON.stringify({ args, env, conf, stdin, allEnv }) + "\n");
 
 // The last rule whose prefix matches the start of the arguments wins.
 const rulesDir = path.join(dir, "rules");

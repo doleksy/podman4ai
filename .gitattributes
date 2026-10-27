@@ -1,0 +1,2 @@
+# Scripts that run in Linux containers need LF line endings.
+images/base/p4a-* text eol=lf

@@ -104,6 +104,17 @@ p4a_new() {
     || p4a_die "the project $project already exists" "start it with 'p4a start $project'"
 
   p4a_require_running_sandbox_machine
+  p4a_require_agent_token
+
+  # Commits in the Sandbox carry the developer's own name and email.
+  local key git_identity=()
+  for key in name email; do
+    local value
+    value="$(git config --global --get "user.$key")" && [[ -n $value ]] \
+      || p4a_die "the Host's git config has no user.$key, which commits in the Sandbox need" \
+        "set it with 'git config --global user.$key <your $key>', then run 'p4a new $repo' again"
+    git_identity+=(--env "GIT_AUTHOR_${key^^}=$value" --env "GIT_COMMITTER_${key^^}=$value")
+  done
 
   local network proxy sandbox project_volume claude_volume
   network="$(_p4a_network_name "$project")"
@@ -154,22 +165,32 @@ p4a_new() {
   for var in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do
     proxy_env+=(--env "$var=$P4A_PROXY_URL")
   done
+  # The Agent token and this project's Repo token, as files only the
+  # Sandbox's user can read. Never any other project's.
+  p4a_ensure_repo_token "$project"
+  local secret secrets=()
+  for secret in "$P4A_AGENT_TOKEN_SECRET:$P4A_AGENT_TOKEN_FILE" \
+      "$(_p4a_repo_token_secret "$project"):$P4A_REPO_TOKEN_FILE"; do
+    secrets+=(--secret "${secret%%:*},type=mount,target=${secret#*:},uid=1000,gid=1000,mode=0400")
+  done
   p4a_sandbox_podman create --name "$sandbox" \
     "${P4A_SANDBOX_HARDENING[@]}" \
     --memory="$P4A_SANDBOX_MEMORY" --cpus="$P4A_SANDBOX_CPUS" --pids-limit="$P4A_SANDBOX_PIDS" \
     --network "$network" --dns=none --add-host "$P4A_PROXY_HOST:$proxy_ip" \
-    "${proxy_env[@]}" \
+    "${proxy_env[@]}" "${git_identity[@]}" --env "P4A_PROJECT=$project" \
     --volume "$project_volume:$P4A_PROJECT_VOLUME_PATH" \
     --volume "$claude_volume:$P4A_CLAUDE_CONFIG_PATH" \
+    "${secrets[@]}" \
     --init "$P4A_BASE_IMAGE" sleep infinity >/dev/null
 
   _p4a_start_project "$project"
 
-  # Public repositories only for now; never prompt for credentials.
+  # git signs in with the project's Repo token, if it has one, through the
+  # Base image's credential helper. Never prompt for credentials.
   if ! p4a_sandbox_podman exec --env GIT_TERMINAL_PROMPT=0 "$sandbox" \
       git clone "https://github.com/$repo.git" "$source_dir"; then
     p4a_die "couldn't clone $repo from GitHub (see git's message above)" \
-      "check that $repo exists and is public, then run 'p4a new $repo' again"
+      "check that $repo exists; if it's private, store its Repo token with 'p4a secret set repo-token $project'. Then run 'p4a new $repo' again"
   fi
 
   trap - EXIT
@@ -212,6 +233,7 @@ p4a_start() {
   [[ $# -eq 1 ]] || p4a_usage_error "start needs one project name" "p4a --help"
   _p4a_require_project "$1"
   p4a_require_running_sandbox_machine
+  p4a_require_agent_token
   _p4a_start_project "$1"
 }
 
@@ -307,7 +329,8 @@ p4a_shell() {
   [[ -t 0 && -t 1 ]] && tty=(-t)
   (( $# )) || set -- bash -l
   local status=0
-  p4a_sandbox_podman exec -i "${tty[@]}" -w "$source_dir" "$sandbox" "$@" \
+  # p4a-session (in the Base image) hands the Agent token to Claude Code.
+  p4a_sandbox_podman exec -i "${tty[@]}" -w "$source_dir" "$sandbox" p4a-session "$@" \
     || status=$?
   return "$status"
 }

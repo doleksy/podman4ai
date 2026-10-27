@@ -12,6 +12,8 @@ source "$P4A_HOME/lib/podman.sh"
 source "$P4A_HOME/lib/machine.sh"
 # shellcheck source=../lib/image.sh
 source "$P4A_HOME/lib/image.sh"
+# shellcheck source=../lib/secret.sh
+source "$P4A_HOME/lib/secret.sh"
 # shellcheck source=../lib/project.sh
 source "$P4A_HOME/lib/project.sh"
 
@@ -21,6 +23,7 @@ main() {
     "" | -h | --help | help) p4a_usage ;;
     machine) shift; p4a_machine "$@" ;;
     image) shift; p4a_image "$@" ;;
+    secret) shift; p4a_secret "$@" ;;
     new) shift; p4a_new "$@" ;;
     start) shift; p4a_start "$@" ;;
     stop) shift; p4a_stop "$@" ;;
@@ -40,6 +43,11 @@ Commands:
   p4a machine <command>   create, start, stop or check the Sandbox machine
                           (see: p4a machine --help)
   p4a image build         build the Egress proxy and Base images
+  p4a secret set agent-token
+                          store the Agent token (from 'claude setup-token')
+  p4a secret set repo-token <project>
+                          store a project's Repo token (a GitHub token for
+                          its one repository); see: p4a secret --help
   p4a new <owner/repo>    create a project: clone a public GitHub repo into
                           its own Sandbox, and start it
   p4a start <project>     start a project's Egress proxy and Sandbox, and

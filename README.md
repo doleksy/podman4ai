@@ -30,7 +30,11 @@ p4a machine start    start it (stop any other running Podman machine first)
 p4a machine stop     stop it
 p4a machine status   show whether it exists and is running
 p4a image build      build the Egress proxy image, then the Base image through it
-p4a new <owner/repo> create a project from a public GitHub repo, and start its Sandbox
+p4a secret set agent-token
+                     store the Agent token (from 'claude setup-token'), from a hidden prompt
+p4a secret set repo-token <project>
+                     store a project's Repo token, from a hidden prompt
+p4a new <owner/repo> create a project from a GitHub repo, and start its Sandbox
 p4a start <project>  start a project's Egress proxy and Sandbox, then run the self-check
 p4a stop <project>   stop a project's Sandbox and Egress proxy
 p4a shell <project>  open a shell in a project's Sandbox, in its source folder
@@ -39,11 +43,22 @@ p4a shell <project> -- <command>...
 p4a podman <args>    run any podman command against the Sandbox machine
 ```
 
+### Secrets
+
+Sandboxes sign in to Claude with the **Agent token** and to GitHub with their project's **Repo token**. Both are Podman secrets in the Sandbox machine. `p4a` reads each one from a hidden prompt and passes it to Podman on stdin, so it never appears on a command line, in shell history, in an image or in `podman inspect`.
+
+1. On the Host, run `claude setup-token`, then `p4a secret set agent-token` and paste the token. It lasts a year.
+2. For each project that should push (or whose repo is private), create a fine-grained GitHub token for that one repository, with read and write access to contents and pull requests. Store it with `p4a secret set repo-token <project>`, before `p4a new` if the repo is private.
+
+A project with no Repo token works with a public repo, but can't push: git says how to set one. A new or changed token reaches a running Sandbox when it restarts (`p4a stop`, then `p4a start`).
+
+Each Sandbox mounts the Agent token at `/run/secrets/agent-token` and only its own project's Repo token at `/run/secrets/repo-token`, readable only by `agent`. `p4a shell` runs every command through `p4a-session`, which hands the Agent token to Claude Code. git uses a credential helper that reads the Repo token for `https://github.com`. Commits carry your name and email, from the Host's `git config --global user.name` and `user.email`. Claude Code adds a Co-Authored-By line to the commits it makes.
+
 ### Projects
 
-`p4a new octo/hello-world` creates the project `hello-world` (the repository's name in lower case). It needs the Sandbox machine running and both images built (rebuild any images made before `p4a new` existed: the Sandbox needs folders they lack). The project has:
+`p4a new octo/hello-world` creates the project `hello-world` (the repository's name in lower case). It needs the Sandbox machine running, both images built (rebuild any images made before secrets existed: the Sandbox needs `p4a-session`), the Agent token stored, and your git name and email set on the Host. The project has:
 
-- a Project volume, `podman4ai-hello-world-source`, mounted at `/workspace`, with the repo cloned over HTTPS to `/workspace/hello-world` (public repos only for now)
+- a Project volume, `podman4ai-hello-world-source`, mounted at `/workspace`, with the repo cloned over HTTPS to `/workspace/hello-world`, using the project's Repo token if it has one
 - a Claude config volume, `podman4ai-hello-world-claude`, mounted at `/home/agent/.claude`
 - an internal network, `podman4ai-hello-world`, with no route out and no DNS, and its own subnet
 - an Egress proxy, `podman4ai-hello-world-proxy`, loaded with the default Allowlist ([`share/default-allowlist`](share/default-allowlist))
@@ -82,4 +97,5 @@ These run against the real Sandbox machine, which must be running, and take seve
 
 ```bash
 test/host/image-build.sh   # bad build step refused, build log clean, no sudo, non-root
+test/host/secrets.sh       # each Sandbox sees only its own Repo token, no token in podman inspect
 ```

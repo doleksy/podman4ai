@@ -1,0 +1,18 @@
+#!/bin/sh
+# p4a-session COMMAND...
+# Run COMMAND signed in to Claude: Claude Code reads the Agent token from
+# CLAUDE_CODE_OAUTH_TOKEN, set here from the mounted secret file. The token
+# lives only in this process tree's environment, never in the container's
+# definition, so `podman inspect` can't show it. `p4a shell` runs every
+# command through this script.
+set -eu
+secrets="${P4A_SECRETS_DIR:-/run/secrets}"
+if [ -r "$secrets/agent-token" ]; then
+  token="$(tr -d '[:space:]' < "$secrets/agent-token")"
+  if [ -n "$token" ]; then
+    CLAUDE_CODE_OAUTH_TOKEN="$token"
+    export CLAUDE_CODE_OAUTH_TOKEN
+  fi
+  unset token
+fi
+exec "$@"
