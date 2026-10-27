@@ -6,7 +6,7 @@
 # stdin: never a command line, an environment definition or an image.
 
 P4A_AGENT_TOKEN_SECRET=podman4ai-agent-token
-_p4a_repo_token_secret() { echo "podman4ai-$1-repo-token"; }
+p4a_repo_token_secret() { echo "podman4ai-$1-repo-token"; }
 
 # Where the tokens appear in a Sandbox: /run/secrets/<name>, readable only
 # by the Base image's user (uid 1000).
@@ -32,7 +32,7 @@ prompt, so it never appears on a command line or in shell history.
 Secrets:
   agent-token             the Agent token every Sandbox uses to sign in to
                           Claude (create one with 'claude setup-token')
-  repo-token <project>    a fine-grained GitHub token for that project's one
+  repo-token <project>    a fine-grained token from GitHub for that project's one
                           repository (contents and pull requests: read and
                           write). Set it before 'p4a new' to clone a private
                           repository.
@@ -56,7 +56,7 @@ _p4a_secret_set() {
       [[ $# -eq 2 && $project =~ $P4A_PROJECT_NAME_PATTERN ]] \
         || p4a_usage_error "secret set repo-token needs one project name (the repository's name in lower case)" "p4a secret --help"
       p4a_require_running_sandbox_machine
-      _p4a_store_secret "$(_p4a_repo_token_secret "$project")" "Repo token for $project"
+      _p4a_store_secret "$(p4a_repo_token_secret "$project")" "Repo token for $project"
       echo "Stored the Repo token for $project."
       if [[ -f "$(_p4a_projects_dir)/$project.conf" ]]; then
         echo "Its Sandbox uses it once restarted: p4a stop $project, then p4a start $project."
@@ -108,8 +108,10 @@ p4a_require_agent_token() {
 # restart. An empty Repo token means git can't sign in to GitHub.
 p4a_ensure_repo_token() {
   local secret
-  secret="$(_p4a_repo_token_secret "$1")"
+  secret="$(p4a_repo_token_secret "$1")"
   _p4a_secret_exists "$secret" && return 0
   # Podman doesn't store an empty secret, so a single newline stands in.
-  echo | p4a_sandbox_podman secret create "$secret" - >/dev/null
+  echo | p4a_sandbox_podman secret create "$secret" - >/dev/null \
+    || p4a_die "couldn't create an empty Repo token for $1 in the Sandbox machine (see podman's message above)" \
+      "check the Sandbox machine with 'p4a machine status'"
 }

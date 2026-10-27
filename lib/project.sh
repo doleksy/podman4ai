@@ -170,7 +170,7 @@ p4a_new() {
   p4a_ensure_repo_token "$project"
   local secret secrets=()
   for secret in "$P4A_AGENT_TOKEN_SECRET:$P4A_AGENT_TOKEN_FILE" \
-      "$(_p4a_repo_token_secret "$project"):$P4A_REPO_TOKEN_FILE"; do
+      "$(p4a_repo_token_secret "$project"):$P4A_REPO_TOKEN_FILE"; do
     secrets+=(--secret "${secret%%:*},type=mount,target=${secret#*:},uid=1000,gid=1000,mode=0400")
   done
   p4a_sandbox_podman create --name "$sandbox" \

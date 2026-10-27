@@ -48,9 +48,11 @@ p4a podman <args>    run any podman command against the Sandbox machine
 Sandboxes sign in to Claude with the **Agent token** and to GitHub with their project's **Repo token**. Both are Podman secrets in the Sandbox machine. `p4a` reads each one from a hidden prompt and passes it to Podman on stdin, so it never appears on a command line, in shell history, in an image or in `podman inspect`.
 
 1. On the Host, run `claude setup-token`, then `p4a secret set agent-token` and paste the token. It lasts a year.
-2. For each project that should push (or whose repo is private), create a fine-grained GitHub token for that one repository, with read and write access to contents and pull requests. Store it with `p4a secret set repo-token <project>`, before `p4a new` if the repo is private.
+2. For each project that should push (or whose repo is private), create a fine-grained token on GitHub for that one repository, with read and write access to contents and pull requests. Store it with `p4a secret set repo-token <project>`, before `p4a new` if the repo is private.
 
 A project with no Repo token works with a public repo, but can't push: git says how to set one. A new or changed token reaches a running Sandbox when it restarts (`p4a stop`, then `p4a start`).
+
+Projects created before secrets existed have no token mounts: rebuild the images, then remove and recreate those projects (push any work first).
 
 Each Sandbox mounts the Agent token at `/run/secrets/agent-token` and only its own project's Repo token at `/run/secrets/repo-token`, readable only by `agent`. `p4a shell` runs every command through `p4a-session`, which hands the Agent token to Claude Code. git uses a credential helper that reads the Repo token for `https://github.com`. Commits carry your name and email, from the Host's `git config --global user.name` and `user.email`. Claude Code adds a Co-Authored-By line to the commits it makes.
 
