@@ -46,6 +46,8 @@ _p4a_read_machines() {
   local list name running starting state
   list="$(p4a_podman machine list --format '{{.Name}}|{{.VMType}}|{{.Running}}|{{.Starting}}')"
   while IFS='|' read -r name _ running starting; do
+    # Podman marks the default connection's machine with "*", even here.
+    name="${name%\*}"
     [[ -n $name ]] || continue
     state=stopped
     [[ $running == true || $starting == true ]] && state=running

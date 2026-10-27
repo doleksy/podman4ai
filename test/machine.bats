@@ -114,6 +114,21 @@ load helpers
   [[ "$output" == *"podman4ai"*"running"* ]]
 }
 
+@test "the Sandbox machine is found when it is Podman's default connection" {
+  # Podman marks the default machine's name with "*", even in --format output.
+  machines "podman-machine-default wsl stopped" "podman4ai* hyperv running"
+  run p4a machine status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Sandbox machine podman4ai: running"* ]]
+}
+
+@test "a default machine marked with * still counts as another running machine" {
+  machines "podman-machine-default* wsl running" "podman4ai hyperv stopped"
+  run p4a machine start
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"podman machine stop podman-machine-default'"* ]]
+}
+
 
 @test "start starts the Sandbox machine without changing the default Podman connection" {
   machines "podman-machine-default wsl stopped" "podman4ai hyperv stopped"
