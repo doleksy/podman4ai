@@ -78,8 +78,11 @@ The Egress proxy tests (`test/proxy.bats`) run the real proxy under Node on the 
 
 ### Host-only checks
 
-These run against the real Sandbox machine, which must be running, and take several minutes:
+These run against the real Sandbox machine, which must be running, and take several minutes. Run them before merging any change to the Launcher, images or Egress proxy:
 
 ```bash
+test/host/isolation.sh     # the isolation suite: one PASS/FAIL line per security property
 test/host/image-build.sh   # bad build step refused, build log clean, no sudo, non-root
 ```
+
+`test/host/isolation.sh` needs both images built. It creates two throwaway projects, `spoon-knife` (from `octocat/Spoon-Knife`) and `test-repo1` (from `octocat/test-repo1`), and runs each check inside a Sandbox with `p4a shell <project> -- <command>`. The checks cover: non-allowlisted domains refused and logged, allowlisted domains working through the proxy, no outside DNS, no Host paths, non-root user with no capabilities, no sudo and no-new-privileges, no Podman socket, no route from one Sandbox to another or to its proxy, and the process and memory limits. Afterwards it removes both projects, their volumes and their network, even after a failure or Ctrl-C. It refuses to start if anything with those names already exists. To use other public repos, set `P4A_ISOLATION_REPO_A` and `P4A_ISOLATION_REPO_B` to `owner/repo`. It refuses to run inside a Sandbox.
