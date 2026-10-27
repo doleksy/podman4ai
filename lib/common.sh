@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Shared helpers for p4a: messages and errors.
+# Shared helpers for p4a: messages, errors and reading Allowlist files.
 
 # p4a_die MESSAGE [FIX]
 # Exit 1 with what went wrong and, when known, how to fix it.
@@ -19,4 +19,17 @@ p4a_usage_error() {
 
 p4a_note() {
   echo "p4a: $*" >&2
+}
+
+# p4a_read_allowlist FILE
+# Print the domains in an Allowlist file, separated by spaces. The file has
+# one domain per line; "#" starts a comment.
+p4a_read_allowlist() {
+  local line domains=()
+  while IFS= read -r line || [[ -n $line ]]; do
+    line="${line%%#*}"
+    line="${line//[[:space:]]/}"
+    [[ -n $line ]] && domains+=("$line")
+  done < "$1"
+  echo "${domains[*]}"
 }

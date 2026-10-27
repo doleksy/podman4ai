@@ -12,6 +12,8 @@ source "$P4A_HOME/lib/podman.sh"
 source "$P4A_HOME/lib/machine.sh"
 # shellcheck source=../lib/image.sh
 source "$P4A_HOME/lib/image.sh"
+# shellcheck source=../lib/project.sh
+source "$P4A_HOME/lib/project.sh"
 
 main() {
   local command="${1:-}"
@@ -19,6 +21,10 @@ main() {
     "" | -h | --help | help) p4a_usage ;;
     machine) shift; p4a_machine "$@" ;;
     image) shift; p4a_image "$@" ;;
+    new) shift; p4a_new "$@" ;;
+    start) shift; p4a_start "$@" ;;
+    stop) shift; p4a_stop "$@" ;;
+    shell) shift; p4a_shell "$@" ;;
     podman) shift; p4a_sandbox_podman "$@" ;;
     *) p4a_usage_error "unknown command '$command'" "p4a --help" ;;
   esac
@@ -34,6 +40,14 @@ Commands:
   p4a machine <command>   create, start, stop or check the Sandbox machine
                           (see: p4a machine --help)
   p4a image build         build the Egress proxy and Base images
+  p4a new <owner/repo>    create a project: clone a public GitHub repo into
+                          its own Sandbox, and start it
+  p4a start <project>     start a project's Egress proxy and Sandbox, and
+                          check that the Sandbox's network is isolated
+  p4a stop <project>      stop a project's Sandbox and Egress proxy
+  p4a shell <project> [-- <command>...]
+                          open a shell in a project's Sandbox, or run one
+                          command there and return its exit code
   p4a podman <args>...    run any podman command against the Sandbox machine
   p4a --help              show this help
 EOF

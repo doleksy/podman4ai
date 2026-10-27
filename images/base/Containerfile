@@ -8,11 +8,16 @@
 FROM docker.io/library/debian:bookworm-slim
 
 # Latest OS patches, the basic tools, and the non-root user Agents run as.
+# The Project volume (/workspace) and Claude config volume (~/.claude)
+# mount over directories the user owns, so Podman gives each new volume
+# to that user.
 RUN apt-get update \
  && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends ca-certificates curl git \
  && rm -rf /var/lib/apt/lists/* \
- && useradd --create-home --uid 1000 --shell /bin/bash agent
+ && useradd --create-home --uid 1000 --shell /bin/bash agent \
+ && mkdir /workspace /home/agent/.claude \
+ && chown agent:agent /workspace /home/agent/.claude
 
 # No sudo, so an Agent can never become root. Fail the build if a package
 # ever brings it in.
