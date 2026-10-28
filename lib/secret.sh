@@ -37,7 +37,9 @@ Secrets:
                           write). Set it before 'p4a new' to clone a private
                           repository.
 
-Running Sandboxes use a new value once restarted ('p4a stop', 'p4a start').
+Existing Sandboxes get a new value at their next 'p4a stop', then
+'p4a start', which recreates the Sandbox (keeping its source and Claude
+config).
 EOF
 }
 
@@ -49,7 +51,7 @@ _p4a_secret_set() {
       p4a_require_running_sandbox_machine
       _p4a_store_secret "$P4A_AGENT_TOKEN_SECRET" "Agent token"
       echo "Stored the Agent token."
-      echo "Running Sandboxes use it once restarted: p4a stop <project>, then p4a start <project>."
+      echo "Existing Sandboxes get it when restarted: p4a stop <project>, then p4a start <project>."
       ;;
     repo-token)
       local project="${2:-}"
@@ -70,8 +72,8 @@ _p4a_secret_set() {
 
 # _p4a_store_secret SECRET DESCRIPTION
 # Read a value from a hidden prompt and store it as SECRET, replacing any
-# value it had. Podman keeps the secret's ID on replace, so containers that
-# mount it see the new value when next started.
+# value it had. Podman gives the replaced secret a new ID, and containers
+# keep the copy they got when created: p4a start recreates them.
 _p4a_store_secret() {
   local value
   IFS= read -rsp "Paste the $2 (input hidden): " value || true
@@ -86,7 +88,7 @@ _p4a_store_secret() {
 
 # Succeed if the secret NAME exists in the Sandbox machine, fail if not.
 # Exit if Podman can't tell.
-_p4a_secret_exists() {
+p4a_secret_exists() {
   local status=0
   p4a_sandbox_podman secret exists "$1" || status=$?
   case $status in
@@ -98,20 +100,8 @@ _p4a_secret_exists() {
 
 # Exit with how to set it unless the Agent token is stored.
 p4a_require_agent_token() {
-  _p4a_secret_exists "$P4A_AGENT_TOKEN_SECRET" \
+  p4a_secret_exists "$P4A_AGENT_TOKEN_SECRET" \
     || p4a_die "there's no Agent token, so Sandboxes can't sign in to Claude" \
       "create one on the Host with 'claude setup-token', then store it with 'p4a secret set agent-token'"
 }
 
-# Give PROJECT an empty Repo token unless one is already stored, so its
-# Sandbox always mounts the secret and a token set later needs only a
-# restart. An empty Repo token means git can't sign in to GitHub.
-p4a_ensure_repo_token() {
-  local secret
-  secret="$(p4a_repo_token_secret "$1")"
-  _p4a_secret_exists "$secret" && return 0
-  # Podman doesn't store an empty secret, so a single newline stands in.
-  echo | p4a_sandbox_podman secret create "$secret" - >/dev/null \
-    || p4a_die "couldn't create an empty Repo token for $1 in the Sandbox machine (see podman's message above)" \
-      "check the Sandbox machine with 'p4a machine status'"
-}

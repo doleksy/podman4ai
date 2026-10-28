@@ -12,7 +12,8 @@
 # 1. Each Sandbox sees its own Repo token, and nothing in it holds the
 #    other project's.
 # 2. `podman inspect` of each Sandbox holds no token value.
-# 3. A replaced Repo token reaches a Sandbox when it restarts, and a
+# 3. A replaced Repo token reaches a Sandbox at its next start (which
+#    recreates it, keeping its source), and so does a removed one: a
 #    project with no Repo token can't push, and says how to set one.
 #
 # Not covered here, because they need real tokens for a repository you own
@@ -95,15 +96,32 @@ for project in "${projects[@]}"; do
 done
 unset agent_token
 
-echo "--- 3. A project with no Repo token can't push"
-# Empty the Repo token the way 'p4a secret set' replaces one, then restart.
-echo | p4a podman secret create --replace podman4ai-hello-world-repo-token - >/dev/null
+echo "--- 3. A changed or removed Repo token reaches the Sandbox at its next start"
+# Replace hello-world's Repo token, then restart: p4a start recreates the
+# Sandbox, keeping its source.
+replaced="github_pat_p4atest_replaced_$RANDOM$RANDOM"
+p4a secret set repo-token hello-world <<< "$replaced" >/dev/null
 p4a stop hello-world >/dev/null
 p4a start hello-world >/dev/null
-if [[ -z "$(p4a shell hello-world -- sh -c 'tr -d "[:space:]" < /run/secrets/repo-token')" ]]; then
+if [[ "$(p4a shell hello-world -- cat /run/secrets/repo-token)" == "$replaced" ]]; then
   pass "a replaced Repo token reaches the Sandbox after a restart"
 else
-  fail "the Sandbox still has the old Repo token after a restart"
+  fail "the Sandbox doesn't have the replaced Repo token after a restart"
+fi
+if p4a shell hello-world -- test -d /workspace/Hello-World/.git; then
+  pass "recreating the Sandbox kept its source"
+else
+  fail "recreating the Sandbox lost its source"
+fi
+
+# Remove the Repo token: the Sandbox no longer gets one, and can't push.
+p4a podman secret rm podman4ai-hello-world-repo-token >/dev/null
+p4a stop hello-world >/dev/null
+p4a start hello-world >/dev/null
+if p4a shell hello-world -- test -e /run/secrets/repo-token; then
+  fail "the Sandbox still has a Repo token after it was removed"
+else
+  pass "a removed Repo token is gone from the Sandbox after a restart"
 fi
 if out="$(p4a shell hello-world -- sh -c 'git push --dry-run origin HEAD:refs/heads/p4a-test 2>&1')"; then
   fail "the push succeeded"

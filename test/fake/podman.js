@@ -38,15 +38,18 @@ const stdin = args.includes("secret") && args.includes("create") ? fs.readFileSy
 const allEnv = { ...process.env };
 fs.appendFileSync(path.join(dir, "calls.jsonl"), JSON.stringify({ args, env, conf, stdin, allEnv }) + "\n");
 
-// The last rule whose prefix matches the start of the arguments wins.
+// The last rule whose prefix matches the start of the arguments, joined by
+// spaces and ending at an argument boundary, wins. (So a prefix can include
+// an argument that itself contains spaces, like a --format template.)
 const rulesDir = path.join(dir, "rules");
+const joined = args.join(" ");
 let rule = null;
 if (fs.existsSync(rulesDir)) {
   const ids = fs.readdirSync(rulesDir).map(Number).sort((a, b) => a - b);
   for (const id of ids) {
     const ruleDir = path.join(rulesDir, String(id));
-    const prefix = fs.readFileSync(path.join(ruleDir, "prefix"), "utf8").split(" ").filter(Boolean);
-    if (prefix.every((word, i) => args[i] === word)) rule = ruleDir;
+    const prefix = fs.readFileSync(path.join(ruleDir, "prefix"), "utf8");
+    if (joined === prefix || joined.startsWith(prefix + " ")) rule = ruleDir;
   }
 }
 
