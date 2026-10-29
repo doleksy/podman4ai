@@ -138,12 +138,13 @@ p4a_new() {
   local n
   mkdir -p "$dir"
   n="$(_p4a_free_subnet)"
-  local subnet="10.89.$n.0/24" proxy_ip="10.89.$n.2"
+  local subnet="10.89.$n.0/24"
   local source_dir="$P4A_PROJECT_VOLUME_PATH/${repo#*/}"
   printf 'repo=%s\nsubnet=%s\nsource=%s\n' "$repo" "$subnet" "$source_dir" > "$conf"
   # From here on, a failure removes everything this command created. The
   # name is expanded now, which is safe: it matches P4A_PROJECT_NAME_PATTERN.
   trap "_p4a_undo_new $project" EXIT
+  _p4a_create_additions_file "$project"
 
   p4a_sandbox_podman volume create "$project_volume" >/dev/null
   p4a_sandbox_podman volume create "$claude_volume" >/dev/null
@@ -151,12 +152,7 @@ p4a_new() {
   p4a_sandbox_podman network create --internal --disable-dns \
     --subnet "$subnet" "$network" >/dev/null
 
-  p4a_sandbox_podman create --name "$proxy" \
-    "${P4A_CONTAINER_HARDENING[@]}" \
-    --network podman --network "$network:ip=$proxy_ip" \
-    --env "P4A_ALLOWLIST=$(p4a_read_allowlist "$P4A_HOME/share/default-allowlist")" \
-    "$P4A_PROXY_IMAGE" >/dev/null
-
+  _p4a_create_proxy "$project"
   _p4a_create_sandbox "$project"
   _p4a_start_project "$project"
 
@@ -200,15 +196,55 @@ _p4a_sandbox_secrets() {
   fi
 }
 
+# Print the address of PROJECT's Egress proxy on the project's network.
+_p4a_proxy_ip() {
+  local subnet
+  subnet="$(_p4a_project_setting "$1" subnet)" \
+    || p4a_die "the settings for $1 don't say which network address range it uses" \
+      "check $(_p4a_projects_dir)/$1.conf has a line 'subnet=10.89.N.0/24'"
+  echo "${subnet%.0/24}.2"
+}
+
+# Create PROJECT's Egress proxy container: on the project's network at its
+# fixed address, and on Podman's default network to reach out. It reads its
+# Allowlist from a file p4a writes when it starts (lib/allowlist.sh). Used
+# by p4a new, and by p4a start to recreate it.
+_p4a_create_proxy() {
+  local project=$1 proxy_ip
+  proxy_ip="$(_p4a_proxy_ip "$project")"
+  p4a_sandbox_podman create --name "$(_p4a_proxy_name "$project")" \
+    "${P4A_CONTAINER_HARDENING[@]}" \
+    --network podman --network "$(_p4a_network_name "$project"):ip=$proxy_ip" \
+    --env "P4A_ALLOWLIST_FILE=$P4A_PROXY_ALLOWLIST_FILE" --env "P4A_PROJECT=$project" \
+    "$P4A_PROXY_IMAGE" >/dev/null
+}
+
+# Recreate PROJECT's Egress proxy if it was created before proxies read
+# their Allowlist from a file, so p4a allow can reach it. The proxy keeps
+# nothing but its log. A running proxy is never recreated.
+_p4a_refresh_proxy() {
+  local project=$1 proxy env
+  proxy="$(_p4a_proxy_name "$project")"
+  env="$(p4a_sandbox_podman container inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$proxy")"
+  grep -q '^P4A_ALLOWLIST_FILE=' <<< "$env" && return 0
+
+  if [[ "$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$proxy")" == true ]]; then
+    p4a_note "the Egress proxy for $project is from an older podman4ai and can't apply 'p4a allow' changes. To update it, run 'p4a stop $project', then 'p4a start $project'"
+    return 0
+  fi
+  p4a_note "Recreating the Egress proxy for $project so it can apply 'p4a allow' changes. Its earlier log is lost."
+  p4a_sandbox_podman rm "$proxy" >/dev/null
+  _p4a_create_proxy "$project" \
+    || p4a_die "couldn't recreate the Egress proxy for $project (see podman's message above)" \
+      "run 'p4a start $project' again"
+}
+
 # Create PROJECT's Sandbox container, attached to the project's network
 # and volumes, with the current tokens. Used by p4a new, and by p4a start
 # to recreate it.
 _p4a_create_sandbox() {
-  local project=$1 subnet
-  subnet="$(_p4a_project_setting "$project" subnet)" \
-    || p4a_die "the settings for $project don't say which network address range it uses" \
-      "check $(_p4a_projects_dir)/$project.conf has a line 'subnet=10.89.N.0/24'"
-  local proxy_ip="${subnet%.0/24}.2"
+  local project=$1 proxy_ip
+  proxy_ip="$(_p4a_proxy_ip "$project")"
 
   local identity=()
   _p4a_git_identity identity
@@ -270,7 +306,7 @@ _p4a_undo_new() {
   p4a_sandbox_podman rm -f "$(_p4a_sandbox_name "$project")" "$(_p4a_proxy_name "$project")" >/dev/null 2>&1 || true
   p4a_sandbox_podman network rm -f "$(_p4a_network_name "$project")" >/dev/null 2>&1 || true
   p4a_sandbox_podman volume rm -f "$(_p4a_project_volume_name "$project")" "$(_p4a_claude_volume_name "$project")" >/dev/null 2>&1 || true
-  rm -f "$(_p4a_projects_dir)/$project.conf"
+  rm -f "$(_p4a_projects_dir)/$project.conf" "$(_p4a_additions_file "$project")"
 }
 
 # The project names that exist, one per line, sorted.
@@ -298,6 +334,7 @@ p4a_start() {
   _p4a_require_project "$1"
   p4a_require_running_sandbox_machine
   p4a_require_agent_token
+  _p4a_refresh_proxy "$1"
   _p4a_refresh_sandbox_tokens "$1"
   _p4a_start_project "$1"
 }
@@ -309,11 +346,16 @@ p4a_stop() {
   _p4a_stop_project "$1"
 }
 
-# Start PROJECT's Egress proxy, then its Sandbox, then check the Sandbox's
-# network. A Sandbox never runs without its proxy, nor with a failed check.
+# Start PROJECT's Egress proxy and give it the project's current Allowlist,
+# then start its Sandbox and check the Sandbox's network. A Sandbox never
+# runs without its proxy, nor with a failed check.
 _p4a_start_project() {
   local project=$1
   p4a_sandbox_podman start "$(_p4a_proxy_name "$project")" >/dev/null
+  if ! (_p4a_push_allowlist "$project"); then
+    _p4a_stop_project "$project" || true
+    exit 1
+  fi
   p4a_sandbox_podman start "$(_p4a_sandbox_name "$project")" >/dev/null
   _p4a_self_check "$project"
 }

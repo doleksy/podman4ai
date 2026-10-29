@@ -57,7 +57,7 @@ load proxy-helpers
 
   for refused in cdn.invalid evilcdn.invalid a.cdn.invalid.evil.invalid; do
     run through_proxy connect "$refused:$UPSTREAM_PORT"
-    [[ "${lines[0]}" == "HTTP/1.1 403 $refused is not on the Allowlist" ]]
+    [[ "${lines[0]}" == "HTTP/1.1 403 $refused is not on the Allowlist;"* ]]
   done
 }
 
@@ -128,4 +128,56 @@ load proxy-helpers
   run through_proxy raw "GET http://localhost:$UPSTREAM_PORT/x HTTP/1.1\r\nHost: other-site.example\r\nConnection: close\r\n\r\n"
   [[ "${lines[0]}" == "HTTP/1.1 200 "* ]]
   [[ "$output" == *"host=localhost:$UPSTREAM_PORT"* ]]
+}
+
+# Write the Allowlist file the proxy reads, one domain per line, the way
+# p4a does: to a new file, then renamed over the old one.
+write_allowlist() {
+  printf '%s\n' "$@" > "$ALLOWLIST_FILE.new"
+  mv -f "$ALLOWLIST_FILE.new" "$ALLOWLIST_FILE"
+}
+
+# Wait up to 5 seconds until a CONNECT to TARGET gets a reply starting
+# with STATUS_LINE.
+wait_for_reply() {
+  local target=$1 want=$2 i
+  for (( i = 0; i < 50; i++ )); do
+    run through_proxy connect "$target"
+    [[ "${lines[0]}" == "$want"* ]] && return 0
+    sleep 0.1
+  done
+  echo "the reply to CONNECT $target is still: ${lines[0]}" >&2
+  return 1
+}
+
+@test "a proxy with an Allowlist file picks up changes to it within seconds, without a restart" {
+  write_allowlist "example.org"
+  start_proxy_with_file
+  run through_proxy connect "localhost:$UPSTREAM_PORT"
+  [[ "${lines[0]}" == "HTTP/1.1 403 "* ]]
+
+  write_allowlist "example.org" "localhost"
+  wait_for_reply "localhost:$UPSTREAM_PORT" "HTTP/1.1 200 "
+
+  write_allowlist "example.org"
+  wait_for_reply "localhost:$UPSTREAM_PORT" "HTTP/1.1 403 "
+  kill -0 "$PROXY_PID"
+}
+
+@test "a proxy whose Allowlist file is missing refuses everything, and allows once the file appears" {
+  start_proxy_with_file
+  run through_proxy connect "localhost:$UPSTREAM_PORT"
+  [[ "${lines[0]}" == "HTTP/1.1 403 localhost is not on the Allowlist"* ]]
+
+  write_allowlist "localhost"
+  wait_for_reply "localhost:$UPSTREAM_PORT" "HTTP/1.1 200 "
+}
+
+@test "a project's proxy refuses a domain by naming it and the command the developer can run to allow it" {
+  write_allowlist "example.org"
+  start_proxy_with_file hello-world
+  run through_proxy connect "example.com:$UPSTREAM_PORT"
+  [ "${lines[0]}" = "HTTP/1.1 403 example.com is not on the Allowlist; the developer can allow it on the Host with: p4a allow hello-world example.com" ]
+  run through_proxy get "http://example.com:$UPSTREAM_PORT/"
+  [[ "$output" == *"podman4ai Egress proxy: example.com is not on the Allowlist; the developer can allow it on the Host with: p4a allow hello-world example.com"* ]]
 }

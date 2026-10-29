@@ -130,7 +130,7 @@ refuse_existing_projects() {
 # Remove both throwaway projects and check nothing is left. Runs on every
 # exit, after refuse_existing_projects has proven every part is ours.
 cleanup() {
-  local status=$? project part kind name exists left=()
+  local status=$? project part kind name exists file left=()
   trap - EXIT INT TERM HUP
   echo "--- Removing the throwaway projects"
   for project in "$A" "$B"; do
@@ -151,8 +151,10 @@ cleanup() {
         *) left+=("the $kind $name (couldn't check: podman exited with $exists)") ;;
       esac
     done
-    rm -f "$(projects_dir)/$project.conf"
-    [[ ! -e "$(projects_dir)/$project.conf" ]] || left+=("$(projects_dir)/$project.conf")
+    for file in "$(projects_dir)/$project.conf" "$(projects_dir)/$project.allowlist"; do
+      rm -f "$file"
+      [[ ! -e $file ]] || left+=("$file")
+    done
   done
   if (( ${#left[@]} )); then
     echo "FAIL  cleanup: these were left behind:"
@@ -239,6 +241,43 @@ allowlisted_domain_works_through_proxy() {
     echo "$ALLOWED_DOMAIN was reached, but the Egress proxy's log doesn't show it allowing it"
     return 1
   fi
+}
+
+# p4a blocked lists the domain A just failed to reach. Runs after
+# non_allowlisted_domain_is_refused_and_logged, which tries it.
+blocked_lists_a_refused_domain() {
+  local out
+  out="$(p4a blocked "$A" 2>&1)" || { echo "p4a blocked failed: $out"; return 1; }
+  grep -qE "^ +[0-9]+  $REFUSED_DOMAIN$" <<< "$out"     || { echo "p4a blocked doesn't list $REFUSED_DOMAIN:"; echo "$out"; return 1; }
+}
+
+# Succeed once PROJECT's Sandbox can (WANT=yes) or can't (WANT=no) reach
+# https://DOMAIN, trying for up to 15 seconds.
+wait_until_reachable() {
+  local project=$1 domain=$2 want=$3 i got
+  for (( i = 0; i < 15; i++ )); do
+    got=no
+    in_sandbox "$project" curl -sS -o /dev/null --max-time 10 "https://$domain" 2>/dev/null && got=yes
+    [[ $got == "$want" ]] && return 0
+    sleep 1
+  done
+  return 1
+}
+
+# p4a allow opens a domain for A within seconds, without restarting
+# anything, and not for B; p4a disallow closes it again.
+allow_applies_live_and_only_to_its_project() {
+  local out started
+  started="$(p4a podman container inspect --format '{{.State.StartedAt}}' "podman4ai-$A" "podman4ai-$A-proxy")"
+  out="$(p4a allow "$A" "$REFUSED_DOMAIN" 2>&1)" || { echo "p4a allow failed: $out"; return 1; }
+  wait_until_reachable "$A" "$REFUSED_DOMAIN" yes     || { echo "$REFUSED_DOMAIN is still unreachable from $A 15 seconds after 'p4a allow'"; return 1; }
+  if in_sandbox "$B" curl -sS -o /dev/null --max-time 10 "https://$REFUSED_DOMAIN" 2>/dev/null; then
+    echo "$REFUSED_DOMAIN, allowed only for $A, was reachable from $B"
+    return 1
+  fi
+  out="$(p4a disallow "$A" "$REFUSED_DOMAIN" 2>&1)" || { echo "p4a disallow failed: $out"; return 1; }
+  wait_until_reachable "$A" "$REFUSED_DOMAIN" no     || { echo "$REFUSED_DOMAIN is still reachable from $A 15 seconds after 'p4a disallow'"; return 1; }
+  [[ "$(p4a podman container inspect --format '{{.State.StartedAt}}' "podman4ai-$A" "podman4ai-$A-proxy")" == "$started" ]]     || { echo "$A's Sandbox or Egress proxy was restarted"; return 1; }
 }
 
 # No name lookups: not through the Sandbox's resolver, and not by asking a
@@ -485,6 +524,8 @@ main() {
   check "a non-allowlisted domain is refused, and the refusal is in the Egress proxy's log" \
     non_allowlisted_domain_is_refused_and_logged
   check "an allowlisted domain works through the Egress proxy" allowlisted_domain_works_through_proxy
+  check "p4a blocked lists a domain the Sandbox just failed to reach" blocked_lists_a_refused_domain
+  check "p4a allow opens a domain within seconds, without a restart, only for its own project; p4a disallow closes it"     allow_applies_live_and_only_to_its_project
   check "outside DNS lookups fail" outside_dns_fails
   check "no Windows drive or Host path is visible inside the Sandbox" no_host_path_is_visible
   check "the user is not root" user_is_not_root
