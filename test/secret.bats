@@ -71,3 +71,16 @@ secret_create_stdin() {
   [ "$(_calls 'c.stdin && /canary/.test(c.stdin) ? c.args.join(" ") : null')" = "--connection podman4ai secret create --replace podman4ai-agent-token -
 --connection podman4ai secret create --replace podman4ai-hello-world-repo-token -" ]
 }
+
+@test "secret set refuses before reading a value when Podman in the Sandbox machine doesn't answer" {
+  machines "podman4ai hyperv running"
+  podman_not_answering
+  for args in "agent-token" "repo-token hello-world"; do
+    run p4a secret set $args <<< "sk-ant-oat01-canary"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"doesn't answer"* ]]
+    [[ "$output" == *"p4a machine stop"*"p4a machine start"* ]]
+  done
+  # Had it read the value first, it would have tried to store it.
+  [ -z "$(podman_calls_starting '--connection podman4ai secret create')" ]
+}

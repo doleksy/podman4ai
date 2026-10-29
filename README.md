@@ -22,6 +22,8 @@ Step 4 needs admin because the first time Podman creates a Hyper-V machine, it r
 
 Everything else works from a normal Git Bash.
 
+After a Windows restart the Sandbox machine can be running while Podman's `gvproxy` helper isn't, so Podman in it doesn't answer. `p4a machine status` and every command that needs the Sandbox machine say so. Fix it with `p4a machine stop`, then `p4a machine start`.
+
 ### Commands
 
 ```

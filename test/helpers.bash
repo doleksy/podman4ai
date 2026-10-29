@@ -122,3 +122,10 @@ _calls() {
       if (out !== null) console.log(out);
     }' "$FAKE_PODMAN_DIR/calls.jsonl"
 }
+
+# The Sandbox machine lists as running but nothing answers Podman's API, as
+# after a Windows restart when Podman's gvproxy helper isn't running.
+podman_not_answering() {
+  fake_podman "--connection podman4ai info" --exit 125 \
+    --stderr "Error: unable to connect to Podman socket: failed to connect: dial tcp 127.0.0.1:54918: connectex: No connection could be made because the target machine actively refused it."
+}

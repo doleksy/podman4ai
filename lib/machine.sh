@@ -59,18 +59,29 @@ _p4a_read_machines() {
   done <<< "$list"
 }
 
+# Exit with the fix unless Podman in the running Sandbox machine answers.
+# After a Windows restart the machine can list as running while Podman's
+# gvproxy helper, which only `podman machine start` starts, isn't: every
+# Podman call is then refused.
+_p4a_require_sandbox_podman_answers() {
+  p4a_sandbox_podman info --format '{{.Host.Arch}}' >/dev/null 2>&1 \
+    || p4a_die "the Sandbox machine $P4A_MACHINE is running, but Podman in it doesn't answer (this happens after a Windows restart)" \
+      "stop it with 'p4a machine stop', then start it with 'p4a machine start'"
+}
+
 _p4a_require_sandbox_machine() {
   [[ $P4A_SANDBOX_STATE != missing ]] \
     || p4a_die "the Sandbox machine $P4A_MACHINE doesn't exist yet" "create it with 'p4a machine create'"
 }
 
-# Exit with the fix unless the Sandbox machine exists and is running. For
-# commands that work inside it.
+# Exit with the fix unless the Sandbox machine exists, is running and Podman
+# in it answers. For commands that work inside it.
 p4a_require_running_sandbox_machine() {
   _p4a_read_machines
   _p4a_require_sandbox_machine
   [[ $P4A_SANDBOX_STATE == running ]] \
     || p4a_die "the Sandbox machine $P4A_MACHINE isn't running" "start it with 'p4a machine start'"
+  _p4a_require_sandbox_podman_answers
 }
 
 p4a_machine_create() {
@@ -90,6 +101,7 @@ p4a_machine_create() {
   _p4a_check_no_drive_sharing
   echo "Created. Start it with: p4a machine start"
 }
+
 
 # Make sure the new machine shares no Windows drives, and remove it if not.
 #
@@ -126,6 +138,7 @@ p4a_machine_start() {
   _p4a_read_machines
   _p4a_require_sandbox_machine
   if [[ $P4A_SANDBOX_STATE == running ]]; then
+    _p4a_require_sandbox_podman_answers
     echo "The Sandbox machine $P4A_MACHINE is already running."
     return
   fi
@@ -173,6 +186,10 @@ p4a_machine_status() {
     missing)
       echo "Sandbox machine $P4A_MACHINE: not created"
       echo "  create it with: p4a machine create"
+      ;;
+    running)
+      _p4a_require_sandbox_podman_answers
+      echo "Sandbox machine $P4A_MACHINE: running"
       ;;
     *) echo "Sandbox machine $P4A_MACHINE: $P4A_SANDBOX_STATE" ;;
   esac

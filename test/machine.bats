@@ -221,3 +221,23 @@ load helpers
   [[ "$output" == *"podman4ai"*"running"* ]]
   [[ "$output" == *"podman-machine-default is also running"* ]]
 }
+
+@test "status says a running Sandbox machine is unusable when Podman doesn't answer, and how to fix it" {
+  machines "podman4ai hyperv running"
+  podman_not_answering
+  run p4a machine status
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"podman4ai"*"Podman"*"doesn't answer"* ]]
+  [[ "$output" == *"p4a machine stop"*"p4a machine start"* ]]
+}
+
+
+@test "start on a running Sandbox machine whose Podman doesn't answer says to stop it first" {
+  machines "podman4ai hyperv running"
+  podman_not_answering
+  run p4a machine start
+  [ "$status" -eq 1 ]
+  [[ "$output" != *"already running"* ]]
+  [[ "$output" == *"p4a machine stop"*"p4a machine start"* ]]
+  [ -z "$(podman_calls_starting "machine start")" ]
+}
