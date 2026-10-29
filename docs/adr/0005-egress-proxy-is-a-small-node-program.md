@@ -1,6 +1,6 @@
 # The Egress proxy is a small Node program of our own, not tinyproxy
 
-The Egress proxy (ADR 0003) is `images/proxy/egress-proxy.js`, about 140 lines on Node's standard library, run from the official `node:22-alpine` image. The #3 prototype used tinyproxy, which worked, but its refusals can't name the refused domain (fixed `403 Filtered`), its log mixes request lines with filter lines (a refused CONNECT appears twice), and it can only be tested inside a container. Our own program refuses with `403 <domain> is not on the Allowlist`, writes one line per attempt (`TIME allowed|refused|failed METHOD HOST:PORT [REASON]`) that `p4a` summarises, and is unit-tested on the Host with the Node the tests already need.
+The Egress proxy (ADR 0003) is `images/proxy/egress-proxy.js`, about 180 lines on Node's standard library, run from the official `node:22-alpine` image. The #3 prototype used tinyproxy, which worked, but its refusals can't name the refused domain (fixed `403 Filtered`), its log mixes request lines with filter lines (a refused CONNECT appears twice), and it can only be tested inside a container. Our own program refuses with `403 <domain> is not on the Allowlist`, writes one line per attempt (`TIME allowed|refused|failed METHOD HOST:PORT [REASON]`) that `p4a` summarises, and is unit-tested on the Host with the Node the tests already need.
 
 ## Considered Options
 

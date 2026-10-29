@@ -48,7 +48,7 @@ function onAllowlist(host) {
 // empty Allowlist, so everything is refused.
 function loadAllowlistFile() {
   try {
-    allowlist = words(fs.readFileSync(allowlistFile, "utf8"));
+    allowlist = words(fs.readFileSync(allowlistFile, "utf8").toLowerCase());
     log("allowlist", "loaded", allowlist.length, "domains");
   } catch (err) {
     allowlist = [];
@@ -167,9 +167,28 @@ server.on("connect", (req, client, head) => {
   });
 });
 
-if (allowlistFile) {
+// Which version of the Allowlist file was last read: its inode, change
+// time and size, or "missing". Taken before reading, so a change made
+// while it's read is picked up at the next check.
+let loadedVersion = null;
+function fileVersion() {
+  try {
+    const stat = fs.statSync(allowlistFile);
+    return `${stat.ino} ${stat.mtimeMs} ${stat.size}`;
+  } catch {
+    return "missing";
+  }
+}
+function reloadIfChanged() {
+  const version = fileVersion();
+  if (version === loadedVersion) return;
+  loadedVersion = version;
   loadAllowlistFile();
-  fs.watchFile(allowlistFile, { interval: 1000 }, loadAllowlistFile);
+}
+
+if (allowlistFile) {
+  reloadIfChanged();
+  setInterval(reloadIfChanged, 1000);
 }
 
 server.listen(listenPort, () => {

@@ -335,3 +335,36 @@ SAMPLE_PROXY_LOG="2026-10-28T10:00:00.000Z listening on port 8888
 example.net" ]
   grep -qx '# my notes' "$P4A_CONFIG_DIR/projects/hello-world.allowlist"
 }
+
+@test "hand-edited additions are matched ignoring case" {
+  hello_world_exists
+  proxy_running hello-world
+  printf 'Example.ORG\n' > "$P4A_CONFIG_DIR/projects/hello-world.allowlist"
+  run p4a allow hello-world example.org
+  [[ "$output" == *"already allowed"* ]]
+  run p4a disallow hello-world example.org
+  [ "$status" -eq 0 ]
+  [ -z "$(saved_additions hello-world)" ]
+}
+
+@test "new refuses to reuse an Allowlist additions file left from an earlier project, and leaves it alone" {
+  sandbox_machine_running
+  mkdir -p "$P4A_CONFIG_DIR/projects"
+  echo "example.org" > "$P4A_CONFIG_DIR/projects/hello-world.allowlist"
+  run p4a new octo/hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"hello-world.allowlist"* ]]
+  [ "$(saved_additions hello-world)" = "example.org" ]
+  [ -z "$(sandbox_calls | grep -E '^(create|volume create|network create)')" ]
+}
+
+@test "allow says the change is saved when the running proxy can't be given it" {
+  hello_world_exists
+  proxy_running hello-world
+  fake_podman "--connection podman4ai exec podman4ai-hello-world-proxy" --exit 125
+  run p4a allow hello-world example.org
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"saved"* ]]
+  [[ "$output" == *"p4a start hello-world"* ]]
+  [ "$(saved_additions hello-world)" = "example.org" ]
+}

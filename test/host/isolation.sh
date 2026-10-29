@@ -254,10 +254,10 @@ blocked_lists_a_refused_domain() {
 # Succeed once PROJECT's Sandbox can (WANT=yes) or can't (WANT=no) reach
 # https://DOMAIN, trying for up to 15 seconds.
 wait_until_reachable() {
-  local project=$1 domain=$2 want=$3 i got
-  for (( i = 0; i < 15; i++ )); do
+  local project=$1 domain=$2 want=$3 got deadline=$((SECONDS + 15))
+  while (( SECONDS < deadline )); do
     got=no
-    in_sandbox "$project" curl -sS -o /dev/null --max-time 10 "https://$domain" 2>/dev/null && got=yes
+    in_sandbox "$project" curl -sS -o /dev/null --max-time 5 "https://$domain" 2>/dev/null && got=yes
     [[ $got == "$want" ]] && return 0
     sleep 1
   done

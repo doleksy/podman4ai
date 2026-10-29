@@ -23,7 +23,8 @@ sandbox_machine_running() {
   # Every secret's current ID.
   fake_podman "--connection podman4ai secret inspect --format {{.ID}}" --stdout id-1
   # Every Egress proxy reads its Allowlist from the file p4a writes.
-  fake_podman "--connection podman4ai container inspect --format {{range .Config.Env}}{{println .}}{{end}}"     --stdout "P4A_ALLOWLIST_FILE=/home/node/allowlist"
+  fake_podman "--connection podman4ai container inspect --format {{range .Config.Env}}{{println .}}{{end}}" \
+    --stdout "P4A_ALLOWLIST_FILE=/home/node/allowlist"
   # The developer's git identity on the Host.
   git config --global user.name "Dev Example"
   git config --global user.email "dev@example.com"

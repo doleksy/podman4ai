@@ -31,12 +31,13 @@ _p4a_create_additions_file() {
 EOF
 }
 
-# Print PROJECT's Allowlist additions, one per line.
+# Print PROJECT's Allowlist additions, one per line, in lower case (the
+# file may have been edited by hand).
 _p4a_allowlist_additions() {
   local file
   file="$(_p4a_additions_file "$1")"
   [[ -f $file ]] || return 0
-  p4a_read_allowlist "$file" | tr ' ' '\n' | grep -v '^$' || true
+  p4a_read_allowlist "$file" | tr ' A-Z' '\na-z' | grep -v '^$' || true
 }
 
 _p4a_default_allowlist() {
@@ -137,7 +138,9 @@ p4a_disallow() {
 _p4a_apply_allowlist() {
   local project=$1
   if _p4a_proxy_is_running "$project"; then
-    _p4a_push_allowlist "$project"
+    (_p4a_push_allowlist "$project") \
+      || p4a_die "the change is saved, but its running Egress proxy doesn't have it yet" \
+        "run 'p4a stop $project', then 'p4a start $project'"
     echo "Its Egress proxy applies the change within a few seconds; the Sandbox keeps running."
   else
     echo "The change applies when you start it: p4a start $project"

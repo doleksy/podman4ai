@@ -105,6 +105,13 @@ p4a_new() {
   conf="$dir/$project.conf"
   [[ ! -e $conf ]] \
     || p4a_die "the project $project already exists" "start it with 'p4a start $project'"
+  # Allowlist additions left from an earlier project of the same name
+  # would quietly widen the new one's network access.
+  local additions
+  additions="$(_p4a_additions_file "$project")"
+  [[ ! -e $additions ]] \
+    || p4a_die "can't create the project $project: $additions is left from an earlier project of that name" \
+      "if its Allowlist additions aren't needed, delete it, then run 'p4a new $repo' again"
 
   p4a_require_running_sandbox_machine
   p4a_require_agent_token
@@ -225,7 +232,9 @@ _p4a_create_proxy() {
 _p4a_refresh_proxy() {
   local project=$1 proxy env
   proxy="$(_p4a_proxy_name "$project")"
-  env="$(p4a_sandbox_podman container inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$proxy")"
+  env="$(p4a_sandbox_podman container inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$proxy")" \
+    || p4a_die "couldn't find the Egress proxy $proxy for $project" \
+      "check what exists with 'p4a podman ps -a'"
   grep -q '^P4A_ALLOWLIST_FILE=' <<< "$env" && return 0
 
   if [[ "$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$proxy")" == true ]]; then
