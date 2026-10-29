@@ -16,6 +16,8 @@ source "$P4A_HOME/lib/image.sh"
 source "$P4A_HOME/lib/secret.sh"
 # shellcheck source=../lib/project.sh
 source "$P4A_HOME/lib/project.sh"
+# shellcheck source=../lib/allowlist.sh
+source "$P4A_HOME/lib/allowlist.sh"
 
 main() {
   local command="${1:-}"
@@ -28,6 +30,9 @@ main() {
     start) shift; p4a_start "$@" ;;
     stop) shift; p4a_stop "$@" ;;
     shell) shift; p4a_shell "$@" ;;
+    allow) shift; p4a_allow "$@" ;;
+    disallow) shift; p4a_disallow "$@" ;;
+    blocked) shift; p4a_blocked "$@" ;;
     podman) shift; p4a_sandbox_podman "$@" ;;
     *) p4a_usage_error "unknown command '$command'" "p4a --help" ;;
   esac
@@ -56,6 +61,13 @@ Commands:
   p4a shell <project> [-- <command>...]
                           open a shell in a project's Sandbox, or run one
                           command there and return its exit code
+  p4a allow <project> <domain>
+                          let a project's Sandbox reach a domain (or
+                          *.domain for its subdomains), without a restart
+  p4a disallow <project> <domain>
+                          take back a domain allowed with p4a allow
+  p4a blocked <project>   list the domains a project's Egress proxy refused,
+                          most frequent first
   p4a podman <args>...    run any podman command against the Sandbox machine
   p4a --help              show this help
 EOF

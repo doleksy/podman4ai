@@ -8,16 +8,29 @@
 //   TIME allowed|refused|failed METHOD HOST:PORT [REASON]
 //
 // Settings, all from the environment:
-//   P4A_ALLOWLIST            domains, separated by spaces or newlines;
-//                            "*.example.com" allows any subdomain of
-//                            example.com (but not example.com itself)
+//   P4A_ALLOWLIST_FILE       a file of Allowlist domains, one per line. It's
+//                            checked for changes every second, so a change
+//                            applies without a restart. While the file is
+//                            missing, everything is refused. Each project's
+//                            proxy uses this, and p4a writes the file.
+//   P4A_ALLOWLIST            domains, separated by spaces or newlines, used
+//                            when there's no P4A_ALLOWLIST_FILE (the image
+//                            build's proxy)
+//   P4A_PROJECT              the project this proxy serves, if any, so a
+//                            refusal can say how to allow the domain
 //   P4A_PROXY_LISTEN_PORT    port to listen on (default 8888)
 //   P4A_PROXY_ALLOWED_PORTS  destination ports allowed (default "80 443")
+//
+// In either Allowlist, "*.example.com" allows any subdomain of example.com
+// (but not example.com itself).
+const fs = require("fs");
 const http = require("http");
 const net = require("net");
 
 const words = (value) => (value ?? "").split(/\s+/).filter(Boolean);
-const allowlist = words(process.env.P4A_ALLOWLIST);
+const allowlistFile = process.env.P4A_ALLOWLIST_FILE;
+const project = process.env.P4A_PROJECT;
+let allowlist = allowlistFile ? [] : words(process.env.P4A_ALLOWLIST);
 const allowedPorts = words(process.env.P4A_PROXY_ALLOWED_PORTS || "80 443");
 const listenPort = Number(process.env.P4A_PROXY_LISTEN_PORT ?? 8888);
 
@@ -31,11 +44,34 @@ function onAllowlist(host) {
   );
 }
 
+// Read the Allowlist file again. A missing or unreadable file means an
+// empty Allowlist, so everything is refused.
+function loadAllowlistFile() {
+  try {
+    allowlist = words(fs.readFileSync(allowlistFile, "utf8").toLowerCase());
+    log("allowlist", "loaded", allowlist.length, "domains");
+  } catch (err) {
+    allowlist = [];
+    log("allowlist", "unreadable, refusing everything", err.code);
+  }
+}
+
+// What a refusal tells the client about allowing HOST: only the developer
+// can, from the Host.
+function howToAllow(host) {
+  return project
+    ? `the developer can allow it on the Host with: p4a allow ${project} ${host}`
+    : "the developer can allow it on the Host";
+}
+
 // Why a request to HOST:PORT is refused, or null if it's allowed. Each
 // refusal has a short reason for the log and a message for the client.
 function refusal(host, port) {
   if (!onAllowlist(host)) {
-    return { reason: "not on the Allowlist", message: `${host} is not on the Allowlist` };
+    return {
+      reason: "not on the Allowlist",
+      message: `${host} is not on the Allowlist; ${howToAllow(host)}`,
+    };
   }
   if (!allowedPorts.includes(String(port))) {
     return { reason: "port not allowed", message: `port ${port} is not allowed` };
@@ -130,6 +166,30 @@ server.on("connect", (req, client, head) => {
     client.end(rawReply(502, `couldn't reach ${host} (${err.code})`));
   });
 });
+
+// Which version of the Allowlist file was last read: its inode, change
+// time and size, or "missing". Taken before reading, so a change made
+// while it's read is picked up at the next check.
+let loadedVersion = null;
+function fileVersion() {
+  try {
+    const stat = fs.statSync(allowlistFile);
+    return `${stat.ino} ${stat.mtimeMs} ${stat.size}`;
+  } catch {
+    return "missing";
+  }
+}
+function reloadIfChanged() {
+  const version = fileVersion();
+  if (version === loadedVersion) return;
+  loadedVersion = version;
+  loadAllowlistFile();
+}
+
+if (allowlistFile) {
+  reloadIfChanged();
+  setInterval(reloadIfChanged, 1000);
+}
 
 server.listen(listenPort, () => {
   log("listening on port", server.address().port);

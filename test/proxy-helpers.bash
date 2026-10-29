@@ -69,3 +69,18 @@ through_proxy() {
 proxy_log() {
   grep -v 'listening on port' "$PROXY_LOG" | cut -d' ' -f2- || true
 }
+
+# The Allowlist file start_proxy_with_file's proxy reads.
+ALLOWLIST_FILE="$BATS_TEST_TMPDIR/allowlist"
+
+# start_proxy_with_file [PROJECT]
+# Start the Egress proxy reading its Allowlist from ALLOWLIST_FILE, as a
+# project's proxy does, for PROJECT if given. It may reach only the
+# stand-in upstream's port.
+start_proxy_with_file() {
+  P4A_ALLOWLIST_FILE="$(_native_path "$ALLOWLIST_FILE")" P4A_PROJECT="${1:-}" \
+    P4A_PROXY_LISTEN_PORT=0 P4A_PROXY_ALLOWED_PORTS="$UPSTREAM_PORT" \
+    node "$(_native_path "$P4A_REPO/images/proxy/egress-proxy.js")" > "$PROXY_LOG" 2>&1 &
+  PROXY_PID=$!
+  PROXY_PORT="$(_wait_for_port "$PROXY_LOG" 'listening on port ')"
+}

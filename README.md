@@ -42,6 +42,12 @@ p4a stop <project>   stop a project's Sandbox and Egress proxy
 p4a shell <project>  open a shell in a project's Sandbox, in its source folder
 p4a shell <project> -- <command>...
                      run one command there and return its exit code
+p4a allow <project> <domain>
+                     let a project's Sandbox reach a domain (or *.domain), without a restart
+p4a disallow <project> <domain>
+                     take back a domain allowed with p4a allow
+p4a blocked <project>
+                     list the domains a project's Egress proxy refused, most frequent first
 p4a podman <args>    run any podman command against the Sandbox machine
 ```
 
@@ -65,14 +71,28 @@ Each Sandbox mounts the Agent token at `/run/secrets/agent-token` and only its o
 - a Project volume, `podman4ai-hello-world-source`, mounted at `/workspace`, with the repo cloned over HTTPS to `/workspace/hello-world`, using the project's Repo token if it has one
 - a Claude config volume, `podman4ai-hello-world-claude`, mounted at `/home/agent/.claude`
 - an internal network, `podman4ai-hello-world`, with no route out and no DNS, and its own subnet
-- an Egress proxy, `podman4ai-hello-world-proxy`, loaded with the default Allowlist ([`share/default-allowlist`](share/default-allowlist))
+- an Egress proxy, `podman4ai-hello-world-proxy`, given the project's Allowlist (see [Allowlists](#allowlists))
 - the Sandbox, `podman4ai-hello-world`, on that network only. It runs as the non-root user `agent` with all capabilities dropped, no-new-privileges, Podman's default seccomp and SELinux, no Podman socket and no Host paths, and is limited to 4 GB memory, 4 CPUs and 4096 processes.
 
 Every start runs a self-check from inside the Sandbox: `github.com` must be reachable through the Egress proxy and `example.com` must not be. If either check fails, `p4a` stops the Sandbox and its proxy and says why.
 
 If `p4a new` fails partway, it removes what it created, so you can run it again. It never reuses or removes a volume, network or container that already had the project's name.
 
-A project's Host settings are in `%APPDATA%\podman4ai\projects\<project>.conf` (or `$P4A_CONFIG_DIR/projects`).
+A project's Host settings are in `%APPDATA%\podman4ai\projects\` (or `$P4A_CONFIG_DIR/projects`): `<project>.conf`, and its Allowlist additions in `<project>.allowlist`. They're outside every repo and every Sandbox, so no Agent can change them.
+
+### Allowlists
+
+A project's Sandbox may reach the domains on the default Allowlist ([`share/default-allowlist`](share/default-allowlist)), which every project shares, plus the project's own additions. Only you can change those, from the Host:
+
+```
+p4a blocked hello-world             # the domains it was refused, most frequent first
+p4a allow hello-world example.org   # allow one (or *.example.org for its subdomains)
+p4a disallow hello-world example.org
+```
+
+`p4a allow` and `p4a disallow` save the change in `hello-world.allowlist`. If the project is running, they also write its effective Allowlist into its Egress proxy, which applies it within a few seconds without restarting anything. A stopped project gets it at `p4a start`. One project's additions never reach another project's proxy. To change the default for every project, change `share/default-allowlist` in podman4ai. When the proxy refuses a domain, its message names the domain and the `p4a allow` command, so an Agent can tell you what to allow.
+
+Egress proxies created before Allowlist additions existed can't apply them. Rebuild the images with `p4a image build`, then stop and start each project: `p4a start` recreates an old proxy, losing only its log.
 
 ### Images
 
@@ -105,4 +125,4 @@ test/host/image-build.sh   # bad build step refused, build log clean, no sudo, n
 test/host/secrets.sh       # each Sandbox sees only its own Repo token, no token in podman inspect
 ```
 
-`test/host/isolation.sh` needs both images built. It creates two throwaway projects, `spoon-knife` (from `octocat/Spoon-Knife`) and `test-repo1` (from `octocat/test-repo1`), and runs each check inside a Sandbox with `p4a shell <project> -- <command>`. The checks cover: non-allowlisted domains refused and logged, allowlisted domains working through the proxy, no outside DNS, no Host paths, non-root user with no capabilities, no sudo and no-new-privileges, no Podman socket, no route from one Sandbox to another or to its proxy, and the process and memory limits. Afterwards it removes both projects, their volumes and their network, even after a failure or Ctrl-C. It refuses to start if anything with those names already exists. To use other public repos, set `P4A_ISOLATION_REPO_A` and `P4A_ISOLATION_REPO_B` to `owner/repo`. It refuses to run inside a Sandbox.
+`test/host/isolation.sh` needs both images built. It creates two throwaway projects, `spoon-knife` (from `octocat/Spoon-Knife`) and `test-repo1` (from `octocat/test-repo1`), and runs each check inside a Sandbox with `p4a shell <project> -- <command>`. The checks cover: non-allowlisted domains refused and logged, allowlisted domains working through the proxy, `p4a blocked` listing a refused domain, `p4a allow` opening a domain within seconds for its own project only and `p4a disallow` closing it again, no outside DNS, no Host paths, non-root user with no capabilities, no sudo and no-new-privileges, no Podman socket, no route from one Sandbox to another or to its proxy, and the process and memory limits. Afterwards it removes both projects, their volumes and their network, even after a failure or Ctrl-C. It refuses to start if anything with those names already exists. To use other public repos, set `P4A_ISOLATION_REPO_A` and `P4A_ISOLATION_REPO_B` to `owner/repo`. It refuses to run inside a Sandbox.
