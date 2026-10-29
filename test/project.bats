@@ -467,3 +467,13 @@ podman4ai-hello-world-repo-token=id-1"
   [[ "$output" == *"git config --global user.email"* ]]
   [ -z "$(sandbox_calls | grep -E '^(create|volume create|network create|secret create)')" ]
 }
+
+@test "start refuses when Podman in the running Sandbox machine doesn't answer, and says how to fix it" {
+  hello_world_exists
+  podman_not_answering
+  run p4a start hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"doesn't answer"* ]]
+  [[ "$output" == *"p4a machine stop"*"p4a machine start"* ]]
+  [[ "$output" != *"connectex"* ]]
+}
