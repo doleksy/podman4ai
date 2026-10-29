@@ -19,6 +19,14 @@ RUN apt-get update \
  && mkdir /workspace /home/agent/.claude \
  && chown agent:agent /workspace /home/agent/.claude
 
+# Signing in (the tokens are mounted at /run/secrets when a Sandbox is
+# created, never stored in the image): p4a-session hands the Agent token to
+# Claude Code, and git signs in to GitHub, over HTTPS only, with the
+# project's Repo token. Claude Code's default commit attribution adds the
+# Co-Authored-By line to Agent commits.
+COPY --chmod=755 p4a-session p4a-git-credential /usr/local/bin/
+RUN git config --system credential.https://github.com.helper /usr/local/bin/p4a-git-credential
+
 # No sudo, so an Agent can never become root. Fail the build if a package
 # ever brings it in.
 RUN if command -v sudo; then echo "sudo must not be in the Base image" >&2; exit 1; fi

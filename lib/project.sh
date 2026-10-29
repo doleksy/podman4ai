@@ -18,7 +18,10 @@ P4A_CONTAINER_HARDENING=(
   --cap-drop=all
   --security-opt=no-new-privileges
 )
-# The Sandbox also runs as the Base image's non-root user.
+# The Sandbox also runs as the Base image's non-root user, agent, whose
+# uid is set in images/base/Containerfile.
+P4A_SANDBOX_UID=1000
+# The Sandbox's hardening: the containers' own, plus running as agent.
 P4A_SANDBOX_HARDENING=("${P4A_CONTAINER_HARDENING[@]}" --user=agent)
 
 # Where the Project volume and Claude config volume appear in the Sandbox.
@@ -104,6 +107,10 @@ p4a_new() {
     || p4a_die "the project $project already exists" "start it with 'p4a start $project'"
 
   p4a_require_running_sandbox_machine
+  p4a_require_agent_token
+  # Check the developer's git identity now, before creating anything.
+  local identity=()
+  _p4a_git_identity identity
 
   local network proxy sandbox project_volume claude_volume
   network="$(_p4a_network_name "$project")"
@@ -150,31 +157,109 @@ p4a_new() {
     --env "P4A_ALLOWLIST=$(p4a_read_allowlist "$P4A_HOME/share/default-allowlist")" \
     "$P4A_PROXY_IMAGE" >/dev/null
 
-  local var proxy_env=()
-  for var in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do
-    proxy_env+=(--env "$var=$P4A_PROXY_URL")
-  done
-  p4a_sandbox_podman create --name "$sandbox" \
-    "${P4A_SANDBOX_HARDENING[@]}" \
-    --memory="$P4A_SANDBOX_MEMORY" --cpus="$P4A_SANDBOX_CPUS" --pids-limit="$P4A_SANDBOX_PIDS" \
-    --network "$network" --dns=none --add-host "$P4A_PROXY_HOST:$proxy_ip" \
-    "${proxy_env[@]}" \
-    --volume "$project_volume:$P4A_PROJECT_VOLUME_PATH" \
-    --volume "$claude_volume:$P4A_CLAUDE_CONFIG_PATH" \
-    --init "$P4A_BASE_IMAGE" sleep infinity >/dev/null
-
+  _p4a_create_sandbox "$project"
   _p4a_start_project "$project"
 
-  # Public repositories only for now; never prompt for credentials.
+  # git signs in with the project's Repo token, if it has one, through the
+  # Base image's credential helper. Never prompt for credentials.
   if ! p4a_sandbox_podman exec --env GIT_TERMINAL_PROMPT=0 "$sandbox" \
       git clone "https://github.com/$repo.git" "$source_dir"; then
     p4a_die "couldn't clone $repo from GitHub (see git's message above)" \
-      "check that $repo exists and is public, then run 'p4a new $repo' again"
+      "check that $repo exists; if it's private, store its Repo token with 'p4a secret set repo-token $project'. Then run 'p4a new $repo' again"
   fi
 
   trap - EXIT
   echo "Created the project $project, with $repo in $source_dir."
   echo "Open a shell in its Sandbox with: p4a shell $project"
+}
+
+# _p4a_git_identity ARRAY
+# Add to ARRAY the --env options that make commits in a Sandbox carry the
+# developer's own name and email, from the Host's git config. Exit if
+# either is missing.
+_p4a_git_identity() {
+  local -n identity_args=$1
+  local key value
+  for key in name email; do
+    value="$(git config --global --get "user.$key")" && [[ -n $value ]] \
+      || p4a_die "the Host's git config has no user.$key, which commits in the Sandbox need" \
+        "set it with 'git config --global user.$key <your $key>', then try again"
+    identity_args+=(--env "GIT_AUTHOR_${key^^}=$value" --env "GIT_COMMITTER_${key^^}=$value")
+  done
+}
+
+# Print the secrets PROJECT's Sandbox mounts, one "SECRET FILE" line each:
+# the Agent token, and the project's own Repo token if it has one. Never
+# any other project's.
+_p4a_sandbox_secrets() {
+  local repo_token
+  repo_token="$(p4a_repo_token_secret "$1")"
+  echo "$P4A_AGENT_TOKEN_SECRET $P4A_AGENT_TOKEN_FILE"
+  if p4a_secret_exists "$repo_token"; then
+    echo "$repo_token $P4A_REPO_TOKEN_FILE"
+  fi
+}
+
+# Create PROJECT's Sandbox container, attached to the project's network
+# and volumes, with the current tokens. Used by p4a new, and by p4a start
+# to recreate it.
+_p4a_create_sandbox() {
+  local project=$1 subnet
+  subnet="$(_p4a_project_setting "$project" subnet)" \
+    || p4a_die "the settings for $project don't say which network address range it uses" \
+      "check $(_p4a_projects_dir)/$project.conf has a line 'subnet=10.89.N.0/24'"
+  local proxy_ip="${subnet%.0/24}.2"
+
+  local identity=()
+  _p4a_git_identity identity
+  local var proxy_env=()
+  for var in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do
+    proxy_env+=(--env "$var=$P4A_PROXY_URL")
+  done
+  # The tokens, as files only the Sandbox's user can read.
+  local list name file secrets=()
+  list="$(_p4a_sandbox_secrets "$project")"
+  while read -r name file; do
+    secrets+=(--secret "$name,type=mount,target=$file,uid=$P4A_SANDBOX_UID,gid=$P4A_SANDBOX_UID,mode=0400")
+  done <<< "$list"
+
+  p4a_sandbox_podman create --name "$(_p4a_sandbox_name "$project")" \
+    "${P4A_SANDBOX_HARDENING[@]}" \
+    --memory="$P4A_SANDBOX_MEMORY" --cpus="$P4A_SANDBOX_CPUS" --pids-limit="$P4A_SANDBOX_PIDS" \
+    --network "$(_p4a_network_name "$project")" --dns=none --add-host "$P4A_PROXY_HOST:$proxy_ip" \
+    "${proxy_env[@]}" "${identity[@]}" --env "P4A_PROJECT=$project" \
+    --volume "$(_p4a_project_volume_name "$project"):$P4A_PROJECT_VOLUME_PATH" \
+    --volume "$(_p4a_claude_volume_name "$project"):$P4A_CLAUDE_CONFIG_PATH" \
+    "${secrets[@]}" \
+    --init "$P4A_BASE_IMAGE" sleep infinity >/dev/null
+}
+
+# Recreate PROJECT's Sandbox if it doesn't mount the current tokens.
+# Podman copies a container's secrets when it's created, so a token stored
+# or replaced since then reaches the Sandbox only this way. Its Project
+# volume and Claude config volume are kept; anything else in the container
+# is lost. A running Sandbox is never recreated.
+_p4a_refresh_sandbox_tokens() {
+  local project=$1 sandbox list name file id want=() have
+  sandbox="$(_p4a_sandbox_name "$project")"
+  list="$(_p4a_sandbox_secrets "$project")"
+  while read -r name file; do
+    id="$(p4a_sandbox_podman secret inspect --format '{{.ID}}' "$name" < /dev/null)"
+    want+=("$name=$id")
+  done <<< "$list"
+  have="$(p4a_sandbox_podman container inspect \
+    --format '{{range .Config.Secrets}}{{.Name}}={{.ID}}{{println}}{{end}}' "$sandbox")"
+  [[ "$(printf '%s\n' "${want[@]}" | sort)" == "$(grep -v '^$' <<< "$have" | sort)" ]] && return 0
+
+  if [[ "$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$sandbox")" == true ]]; then
+    p4a_note "the Sandbox for $project is running with old tokens. To give it the current ones, run 'p4a stop $project', then 'p4a start $project'"
+    return 0
+  fi
+  p4a_note "Recreating the Sandbox for $project to give it the current tokens. Its source and Claude config are kept; anything else changed inside it is lost."
+  p4a_sandbox_podman rm "$sandbox" >/dev/null
+  _p4a_create_sandbox "$project" \
+    || p4a_die "couldn't recreate the Sandbox for $project (see podman's message above); its volumes are kept" \
+      "run 'p4a start $project' again"
 }
 
 # Remove every part of PROJECT that p4a new created, after it failed. Only
@@ -212,6 +297,8 @@ p4a_start() {
   [[ $# -eq 1 ]] || p4a_usage_error "start needs one project name" "p4a --help"
   _p4a_require_project "$1"
   p4a_require_running_sandbox_machine
+  p4a_require_agent_token
+  _p4a_refresh_sandbox_tokens "$1"
   _p4a_start_project "$1"
 }
 
@@ -307,7 +394,8 @@ p4a_shell() {
   [[ -t 0 && -t 1 ]] && tty=(-t)
   (( $# )) || set -- bash -l
   local status=0
-  p4a_sandbox_podman exec -i "${tty[@]}" -w "$source_dir" "$sandbox" "$@" \
+  # p4a-session (in the Base image) hands the Agent token to Claude Code.
+  p4a_sandbox_podman exec -i "${tty[@]}" -w "$source_dir" "$sandbox" p4a-session "$@" \
     || status=$?
   return "$status"
 }

@@ -17,6 +17,13 @@ sandbox_machine_running() {
   fake_podman "--connection podman4ai volume exists" --exit 1
   fake_podman "--connection podman4ai network exists" --exit 1
   fake_podman "--connection podman4ai container exists" --exit 1
+  # The Agent token is set, and so is every project's Repo token.
+  fake_podman "--connection podman4ai secret exists" --exit 0
+  # Every secret's current ID.
+  fake_podman "--connection podman4ai secret inspect --format {{.ID}}" --stdout id-1
+  # The developer's git identity on the Host.
+  git config --global user.name "Dev Example"
+  git config --global user.email "dev@example.com"
   fake_podman "--connection podman4ai exec podman4ai-hello-world curl https://example.com" --exit 56
   fake_podman "--connection podman4ai exec podman4ai-spoon-knife curl https://example.com" --exit 56
 }
@@ -26,6 +33,10 @@ hello_world_exists() {
   sandbox_machine_running
   p4a new octo/hello-world
   : > "$FAKE_PODMAN_DIR/calls.jsonl"
+  # Its Sandbox mounts the current tokens.
+  fake_podman "--connection podman4ai container inspect --format {{range .Config.Secrets}}{{.Name}}={{.ID}}{{println}}{{end}} podman4ai-hello-world" \
+    --stdout "podman4ai-agent-token=id-1
+podman4ai-hello-world-repo-token=id-1"
 }
 
 # The arguments of the call that created CONTAINER, one per line.
@@ -270,6 +281,7 @@ start podman4ai-hello-world" ]
   run p4a new octo/hello-world
   [ "$status" -eq 1 ]
   [[ "$output" == *"couldn't clone octo/hello-world"* ]]
+  [[ "$output" == *"p4a secret set repo-token hello-world"* ]]
   local calls
   calls="$(sandbox_calls)"
   has_line "rm -f podman4ai-hello-world podman4ai-hello-world-proxy" <<< "$calls"
@@ -286,20 +298,20 @@ hello_world_running() {
   fake_podman "--connection podman4ai container inspect --format {{.State.Running}} podman4ai-hello-world" --stdout true
 }
 
-@test "shell -- COMMAND runs one command in the Sandbox's source folder and returns its exit code" {
+@test "shell -- COMMAND runs one command, signed in with the Agent token, in the Sandbox's source folder and returns its exit code" {
   hello_world_running
   fake_podman "--connection podman4ai exec" --stdout "commit 1234abc" --exit 3
   run p4a shell hello-world -- git -C /workspace/hello-world log -1
   [ "$status" -eq 3 ]
   [[ "$output" == *"commit 1234abc"* ]]
-  [ "$(_calls 'c.args[2] === "exec" ? JSON.stringify(c.args) : null')" = '["--connection","podman4ai","exec","-i","-w","/workspace/hello-world","podman4ai-hello-world","git","-C","/workspace/hello-world","log","-1"]' ]
+  [ "$(_calls 'c.args[2] === "exec" ? JSON.stringify(c.args) : null')" = '["--connection","podman4ai","exec","-i","-w","/workspace/hello-world","podman4ai-hello-world","p4a-session","git","-C","/workspace/hello-world","log","-1"]' ]
 }
 
 @test "shell with no command opens a login shell in the Sandbox's source folder" {
   hello_world_running
   run p4a shell hello-world
   [ "$status" -eq 0 ]
-  sandbox_calls | has_line "exec -i -w /workspace/hello-world podman4ai-hello-world bash -l"
+  sandbox_calls | has_line "exec -i -w /workspace/hello-world podman4ai-hello-world p4a-session bash -l"
 }
 
 @test "shell into a stopped Sandbox says how to start it" {
@@ -322,4 +334,136 @@ hello_world_running() {
     [[ "$output" == *"unknown project 'hello-wrld'"* ]]
     [[ "$output" == *"Known projects: hello-world, spoon-knife"* ]]
   done
+}
+
+@test "each Sandbox is given the Agent token and only its own project's Repo token, as files" {
+  sandbox_machine_running
+  p4a new octo/hello-world
+  p4a new octo/spoon-knife
+  [ "$(create_args podman4ai-hello-world | flag_values --secret)" = "podman4ai-agent-token,type=mount,target=agent-token,uid=1000,gid=1000,mode=0400
+podman4ai-hello-world-repo-token,type=mount,target=repo-token,uid=1000,gid=1000,mode=0400" ]
+  [ "$(create_args podman4ai-spoon-knife | flag_values --secret)" = "podman4ai-agent-token,type=mount,target=agent-token,uid=1000,gid=1000,mode=0400
+podman4ai-spoon-knife-repo-token,type=mount,target=repo-token,uid=1000,gid=1000,mode=0400" ]
+  # The Egress proxies get no secrets at all.
+  [ -z "$(create_args podman4ai-hello-world-proxy | flag_values --secret)" ]
+  [ -z "$(create_args podman4ai-spoon-knife-proxy | flag_values --secret)" ]
+}
+
+@test "new without an Agent token says how to set it, and creates nothing" {
+  sandbox_machine_running
+  fake_podman "--connection podman4ai secret exists podman4ai-agent-token" --exit 1
+  run p4a new octo/hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no Agent token"* ]]
+  [[ "$output" == *"p4a secret set agent-token"* ]]
+  [ -z "$(sandbox_calls | grep -E '^(create|volume create|network create|secret create)')" ]
+}
+
+@test "start without an Agent token says how to set it, and starts nothing" {
+  hello_world_exists
+  fake_podman "--connection podman4ai secret exists podman4ai-agent-token" --exit 1
+  run p4a start hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"p4a secret set agent-token"* ]]
+  [ -z "$(sandbox_calls | grep '^start ')" ]
+}
+
+@test "a project with no Repo token gets no Repo token mount, and new stores no secret" {
+  sandbox_machine_running
+  fake_podman "--connection podman4ai secret exists podman4ai-hello-world-repo-token" --exit 1
+  run p4a new octo/hello-world
+  [ "$status" -eq 0 ]
+  [ "$(create_args podman4ai-hello-world | flag_values --secret)" = "podman4ai-agent-token,type=mount,target=agent-token,uid=1000,gid=1000,mode=0400" ]
+  [ -z "$(sandbox_calls | grep '^secret create')" ]
+}
+
+# What hello-world's Sandbox mounts: lines of SECRET=ID.
+hello_world_mounts() {
+  fake_podman "--connection podman4ai container inspect --format {{range .Config.Secrets}}{{.Name}}={{.ID}}{{println}}{{end}} podman4ai-hello-world" --stdout "$1"
+}
+
+# The calls that remove, create or start hello-world's Sandbox, in order.
+sandbox_lifecycle_calls() {
+  sandbox_calls | grep -E '^(rm|create --name podman4ai-hello-world |start podman4ai-hello-world$)' | sed 's/^\(create --name podman4ai-hello-world\) .*/\1/'
+}
+
+@test "start recreates a stopped Sandbox whose tokens changed, keeping its source and Claude config" {
+  hello_world_exists
+  # The Agent token was replaced since the Sandbox was created.
+  hello_world_mounts "podman4ai-agent-token=old-id
+podman4ai-hello-world-repo-token=id-1"
+  run p4a start hello-world
+  [ "$status" -eq 0 ]
+  [ "$(sandbox_lifecycle_calls)" = "rm podman4ai-hello-world
+create --name podman4ai-hello-world
+start podman4ai-hello-world" ]
+  [[ "$output" == *"Recreating the Sandbox for hello-world"* ]]
+  local args
+  args="$(create_args podman4ai-hello-world)"
+  has_line "podman4ai-hello-world-source:/workspace" <<< "$(flag_values --volume <<< "$args")"
+  has_line "podman4ai-hello-world-claude:/home/agent/.claude" <<< "$(flag_values --volume <<< "$args")"
+  [ "$(flag_values --secret <<< "$args" | cut -d, -f1)" = "podman4ai-agent-token
+podman4ai-hello-world-repo-token" ]
+  # Same hardening, network and identity as p4a new gave it.
+  has_line "--cap-drop=all" <<< "$args"
+  has_line "--user=agent" <<< "$args"
+  has_line "--dns=none" <<< "$args"
+  has_line "GIT_AUTHOR_EMAIL=dev@example.com" <<< "$(flag_values --env <<< "$args")"
+  [[ "$(flag_values --add-host <<< "$args")" == egress-proxy:10.89.1.2 ]]
+}
+
+@test "start leaves a Sandbox whose tokens are current alone" {
+  hello_world_exists
+  run p4a start hello-world
+  [ "$status" -eq 0 ]
+  [ "$(sandbox_lifecycle_calls)" = "start podman4ai-hello-world" ]
+  [[ "$output" != *"Recreating"* ]]
+}
+
+@test "start gives a Sandbox the Repo token stored after p4a new" {
+  sandbox_machine_running
+  fake_podman "--connection podman4ai secret exists podman4ai-hello-world-repo-token" --exit 1
+  p4a new octo/hello-world
+  : > "$FAKE_PODMAN_DIR/calls.jsonl"
+  hello_world_mounts "podman4ai-agent-token=id-1"
+  fake_podman "--connection podman4ai secret exists podman4ai-hello-world-repo-token" --exit 0
+  run p4a start hello-world
+  [ "$status" -eq 0 ]
+  [ "$(create_args podman4ai-hello-world | flag_values --secret | cut -d, -f1)" = "podman4ai-agent-token
+podman4ai-hello-world-repo-token" ]
+}
+
+@test "start never recreates a running Sandbox, and says how to give it the new tokens" {
+  hello_world_exists
+  hello_world_mounts "podman4ai-agent-token=old-id
+podman4ai-hello-world-repo-token=id-1"
+  fake_podman "--connection podman4ai container inspect --format {{.State.Running}} podman4ai-hello-world" --stdout true
+  run p4a start hello-world
+  [ "$status" -eq 0 ]
+  [ -z "$(sandbox_calls | grep -E '^(rm|create) ')" ]
+  [[ "$output" == *"p4a stop hello-world"* ]]
+}
+
+@test "the Sandbox's git uses the developer's name and email from the Host's git config" {
+  sandbox_machine_running
+  git config --global user.name "Ada Lovelace"
+  git config --global user.email "ada@example.com"
+  p4a new octo/hello-world
+  local env
+  env="$(create_args podman4ai-hello-world | flag_values --env)"
+  has_line "GIT_AUTHOR_NAME=Ada Lovelace" <<< "$env"
+  has_line "GIT_COMMITTER_NAME=Ada Lovelace" <<< "$env"
+  has_line "GIT_AUTHOR_EMAIL=ada@example.com" <<< "$env"
+  has_line "GIT_COMMITTER_EMAIL=ada@example.com" <<< "$env"
+  # The Sandbox knows its project's name, for messages about its Repo token.
+  has_line "P4A_PROJECT=hello-world" <<< "$env"
+}
+
+@test "new without a git name and email on the Host says how to set them, and creates nothing" {
+  sandbox_machine_running
+  git config --global --unset user.email
+  run p4a new octo/hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"git config --global user.email"* ]]
+  [ -z "$(sandbox_calls | grep -E '^(create|volume create|network create|secret create)')" ]
 }
