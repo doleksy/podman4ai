@@ -1,6 +1,6 @@
 # The Base image every Sandbox starts from: Claude Code and everyday dev
 # tools, adapted from Anthropic's reference devcontainer Dockerfile, without
-# its sudo, zsh and firewall (the Egress proxy is the firewall, ADR 0003).
+# its sudo, zsh and firewall (the Egress proxy takes its place, ADR 0003).
 #
 # Built only by `p4a image build`, on a network whose only way out is an
 # Egress proxy loaded with the build Allowlist (share/build-allowlist). The

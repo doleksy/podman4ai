@@ -70,7 +70,7 @@ if in_sandbox semver 1.2.3 >/dev/null 2>&1; then pass "the npm global package is
 if in_sandbox pycowsay moo >/dev/null 2>&1; then pass "the uv tool is still there after a restart"; else fail "the uv tool is gone after a restart"; fi
 if in_sandbox python3 -c 'import six' 2>/dev/null; then pass "the pip --user package is still there after a restart"; else fail "the pip --user package is gone after a restart"; fi
 
-echo "--- 3. Claude Code's update check, telemetry and error reporting are off"
+echo "--- 3. Claude Code's self-updater, telemetry and error reporting are off"
 for var in DISABLE_AUTOUPDATER DISABLE_TELEMETRY DISABLE_ERROR_REPORTING; do
   if [[ "$(in_sandbox printenv "$var")" == 1 ]]; then pass "$var=1"; else fail "$var isn't 1 in the Sandbox"; fi
 done

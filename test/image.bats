@@ -24,6 +24,9 @@ sandbox_calls() {
   podman_calls_starting "--connection podman4ai " | sed 's/^--connection podman4ai //'
 }
 
+# Matches the Base image's own build (not the build that labels it).
+BASE_BUILD='build .*podman4ai-base .*/images/base$'
+
 # The line number of the first Sandbox-machine call matching REGEX.
 call_number() {
   sandbox_calls | grep -n -E "^$1" | head -1 | cut -d: -f1
@@ -76,15 +79,15 @@ proxy_allowlist() {
   [ "$(grep -o -- '--network' <<< "$holder" | wc -l)" -eq 1 ]
 
   local base
-  base="$(sandbox_calls | grep '^build .*podman4ai-base .*/images/base$')"
+  base="$(sandbox_calls | grep "^$BASE_BUILD")"
   [[ " $base " == *" --network ns:$BUILD_NETNS "* ]]
   [ "$(grep -o -- '--network' <<< "$base" | wc -l)" -eq 1 ]
   [[ " $base " == *" --add-host egress-proxy:10.89.200.2 "* ]]
   for var in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do
     [[ " $base " == *" --build-arg $var=http://egress-proxy:8888 "* ]]
   done
-  (( $(call_number "run .* --name podman4ai-build-proxy ") < $(call_number "build .*podman4ai-base .*/images/base$") ))
-  (( $(call_number "run .* --name podman4ai-build-netns ") < $(call_number "build .*podman4ai-base .*/images/base$") ))
+  (( $(call_number "run .* --name podman4ai-build-proxy ") < $(call_number "$BASE_BUILD") ))
+  (( $(call_number "run .* --name podman4ai-build-netns ") < $(call_number "$BASE_BUILD") ))
 }
 
 @test "image build creates the build network with no route out and no DNS" {
@@ -124,7 +127,7 @@ proxy_allowlist() {
   run p4a image build
   [ "$status" -eq 0 ]
   local base
-  base="$(sandbox_calls | grep '^build .*podman4ai-base .*/images/base$')"
+  base="$(sandbox_calls | grep "^$BASE_BUILD")"
   [[ " $base " == *" --no-cache "* ]]
   [[ " $base " == *" --pull=newer "* ]]
 }
@@ -158,7 +161,7 @@ PROXY_LOG_WITH_REFUSAL='2026-10-25T23:04:46.000Z listening on port 8888
   run p4a image build
   [ "$status" -eq 0 ]
   local base
-  base="$(call_number "build .*podman4ai-base .*/images/base$")"
+  base="$(call_number "$BASE_BUILD")"
   (( $(call_number "rm -f podman4ai-build-netns$") > base ))
   (( $(call_number "stop .*podman4ai-build-proxy$") > base ))
 }
@@ -192,7 +195,7 @@ PROXY_LOG_WITH_REFUSAL='2026-10-25T23:04:46.000Z listening on port 8888
   local version
   version="$(sandbox_calls | grep '^run .*localhost/podman4ai-base claude --version$')"
   [[ " $version " == *" --network none "* ]]
-  (( $(call_number "build .*podman4ai-base .*/images/base$") < $(call_number "run .*podman4ai-base claude --version") ))
+  (( $(call_number "$BASE_BUILD") < $(call_number "run .*podman4ai-base claude --version") ))
   (( $(call_number "run .*podman4ai-base claude --version") < $(call_number "build .*--label ") ))
   [[ "$output" == *"Claude Code 2.1.312"* ]]
 }
@@ -206,6 +209,16 @@ PROXY_LOG_WITH_REFUSAL='2026-10-25T23:04:46.000Z listening on port 8888
   [[ "$output" == *"Claude Code doesn't run in the Base image just built"* ]]
   [[ "$output" == *"claude: command not found"* ]]
   [ -z "$(sandbox_calls | grep '^build .*--label ')" ]
+}
+
+@test "image build fails if labelling the Base image fails" {
+  build_can_run
+  fake_podman "--connection podman4ai build --network none --pull=never" \
+    --stderr "Error: creating build container: something went wrong" --exit 125
+  run p4a image build
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"couldn't label the Base image"* ]]
+  [[ "$output" != *"Built "* ]]
 }
 
 @test "image build needs the Sandbox machine to be running" {
@@ -229,7 +242,7 @@ PROXY_LOG_WITH_REFUSAL='2026-10-25T23:04:46.000Z listening on port 8888
   build_can_run
   run p4a image build
   [ "$status" -eq 0 ]
-  (( $(call_number "logs podman4ai-build-proxy") < $(call_number "build .*podman4ai-base .*/images/base$") ))
+  (( $(call_number "logs podman4ai-build-proxy") < $(call_number "$BASE_BUILD") ))
 }
 
 @test "image build gives up, without building the Base image, if the Egress proxy never starts listening" {
@@ -239,6 +252,6 @@ PROXY_LOG_WITH_REFUSAL='2026-10-25T23:04:46.000Z listening on port 8888
   [ "$status" -eq 1 ]
   [[ "$output" == *"the build's Egress proxy didn't start"* ]]
   [[ "$output" == *"node: something went wrong"* ]]
-  [ -z "$(sandbox_calls | grep '^build .*podman4ai-base .*/images/base$')" ]
+  [ -z "$(sandbox_calls | grep "^$BASE_BUILD")" ]
   podman_calls | grep -q "rm -f podman4ai-build-proxy podman4ai-build-netns$"
 }

@@ -119,7 +119,9 @@ _p4a_label_base_image() {
     --build-arg "BASE_IMAGE=$P4A_BASE_IMAGE" \
     --label "$P4A_CREATED_LABEL=$created" \
     --label "$P4A_CLAUDE_VERSION_LABEL=$version" \
-    -t "$P4A_BASE_IMAGE" "$(p4a_native_path "$P4A_HOME/images/base-labels")" >/dev/null
+    -t "$P4A_BASE_IMAGE" "$(p4a_native_path "$P4A_HOME/images/base-labels")" >/dev/null \
+    || p4a_die "couldn't label the Base image (see podman's message above)" \
+      "run 'p4a image build' again"
   echo "$version"
 }
 
