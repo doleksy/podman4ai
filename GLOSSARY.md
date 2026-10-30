@@ -23,7 +23,7 @@ The set of network destinations a Sandbox may reach; everything else is blocked.
 _Avoid_: whitelist, firewall rules
 
 **Build Allowlist**:
-The Allowlist for building the Base image (Debian mirrors, Claude Code's installer), kept in podman4ai's own configuration and separate from any Sandbox's Allowlist.
+The Allowlist for building the Base image (Debian mirrors, Claude Code's installer, and where the Base image's other tools are released), kept in podman4ai's own configuration and separate from any Sandbox's Allowlist.
 _Avoid_: build whitelist
 
 **Launcher**:
