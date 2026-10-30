@@ -124,6 +124,8 @@ The tests need Bash and Node, never a real Podman. They run real `p4a` commands 
 
 The Egress proxy tests (`test/proxy.bats`) run the real proxy under Node on the Host, against a stand-in web server on localhost.
 
+CI runs all the unit tests (`test/run.sh`) on Linux for every pull request and every push to `main` ([`.github/workflows/unit-tests.yml`](.github/workflows/unit-tests.yml)). CI doesn't run the Host-only checks below; they need the real Sandbox machine, so run them by hand.
+
 ### Host-only checks
 
 These run against the real Sandbox machine, which must be running, and take several minutes. Run them before merging any change to the Launcher, images or Egress proxy:
