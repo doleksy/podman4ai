@@ -36,8 +36,15 @@ load helpers
 }
 
 @test "a missing podman is reported with how to install it" {
-  PATH="$P4A_REPO/bin:/usr/bin:/bin"
-  run p4a machine status
+  # Only the tools p4a needs before it looks for podman, not all of /usr/bin:
+  # some Linux hosts (GitHub's Ubuntu runners) have a real podman there.
+  local tools="$BATS_TEST_TMPDIR/tools" tool
+  mkdir -p "$tools"
+  for tool in bash env readlink dirname; do
+    printf '#!/bin/sh\nexec %s "$@"\n' "$(command -v "$tool")" > "$tools/$tool"
+    chmod +x "$tools/$tool"
+  done
+  run env PATH="$P4A_REPO/bin:$tools" p4a machine status
   [ "$status" -eq 1 ]
   [[ "$output" == *"podman not found"* ]]
   [[ "$output" == *"install Podman"* ]]
