@@ -57,15 +57,20 @@ RUN arch="$(dpkg --print-architecture | sed s/amd64/x64/)" \
       --exclude=CHANGELOG.md --exclude=LICENSE --exclude=README.md \
  && rm "$file"
 
-# uv, from its latest GitHub release, checked against the release's checksum.
+# Astral's Python tools: uv, the ruff linter and formatter, and the ty type
+# checker. Each from its latest GitHub release, checked against the
+# release's checksum; all three publish their binaries the same way.
 RUN arch="$(uname -m)" \
- && file="uv-$arch-unknown-linux-gnu.tar.gz" \
- && url="https://github.com/astral-sh/uv/releases/download/$(latest-github-release astral-sh/uv)" \
  && cd /tmp \
- && curl -fsSLO "$url/$file" \
- && curl -fsSL "$url/$file.sha256" | sha256sum -c - \
- && tar -xzf "$file" -C /usr/local/bin --strip-components=1 --no-same-owner \
- && rm "$file"
+ && for tool in uv ruff ty; do \
+      file="$tool-$arch-unknown-linux-gnu.tar.gz" \
+      && url="https://github.com/astral-sh/$tool/releases/download/$(latest-github-release "astral-sh/$tool")" \
+      && curl -fsSLO "$url/$file" \
+      && curl -fsSL "$url/$file.sha256" | sha256sum -c - \
+      && tar -xzf "$file" -C /usr/local/bin --strip-components=1 --no-same-owner \
+      && rm "$file" \
+      || exit 1; \
+    done
 
 # Bun, from its latest GitHub release, checked against the release's
 # checksums. Like Bun's own installer, the baseline build on CPUs without

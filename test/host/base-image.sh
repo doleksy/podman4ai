@@ -49,7 +49,7 @@ in_sandbox() { p4a shell "$project" -- "$@" < /dev/null; }
 echo "--- 1. Every tool runs, as the non-root user"
 uid="$(in_sandbox id -u)"
 if [[ $uid != 0 ]]; then pass "the Sandbox runs as $(in_sandbox id -un) (uid $uid)"; else fail "the Sandbox runs as root"; fi
-for tool in node npm python3 pip uv uvx bun bunx gh rg jq fzf delta less nano tmux claude; do
+for tool in node npm python3 pip uv uvx ruff ty bun bunx gh rg jq fzf delta less nano tmux claude; do
   flag=--version
   [[ $tool == tmux ]] && flag=-V
   if out="$(in_sandbox "$tool" "$flag" 2>&1)"; then
