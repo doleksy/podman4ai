@@ -1,6 +1,5 @@
 # Run the unit tests (test/run.sh) on Linux. They need Bash and Node, never a
-# real Podman. The Host-only checks in test/host/ need the real Sandbox
-# machine and are still run by hand.
+# real Podman. Not the Host-only checks in test/host/: see the README.
 name: Unit tests
 
 on:
@@ -13,7 +12,8 @@ permissions:
 
 concurrency:
   group: unit-tests-${{ github.ref }}
-  cancel-in-progress: true
+  # A new push to a PR replaces its old run; every push to main runs in full.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unit-tests:
@@ -26,6 +26,6 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: lts/*
+          node-version: 24
       - name: Run the unit tests
         run: test/run.sh
