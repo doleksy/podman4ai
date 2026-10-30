@@ -10,3 +10,14 @@ deb.debian.org
 # Claude Code's native installer and its downloads
 claude.ai
 downloads.claude.ai
+
+# Node's releases
+nodejs.org
+
+# gh's apt repository
+cli.github.com
+
+# Latest-release lookups and release downloads for uv, Bun and git-delta
+# (GitHub redirects each download to its asset host)
+github.com
+release-assets.githubusercontent.com

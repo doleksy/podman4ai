@@ -75,7 +75,8 @@ p4a_image_build() {
   done
   # No cache and the newest Debian image: every download happens again,
   # through the proxy, and brings the latest OS patches and Claude Code.
-  local built=true
+  local built=true created
+  created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   p4a_sandbox_podman build --no-cache --pull=newer \
     --network "ns:$netns" \
     --add-host "egress-proxy:$P4A_BUILD_PROXY_IP" \
@@ -90,7 +91,36 @@ p4a_image_build() {
 
   $built || p4a_die "the Base image build failed" \
     "see the build output above; if it needed a refused domain, and that domain should be allowed, add it to $P4A_HOME/share/build-allowlist"
-  echo "Built $P4A_PROXY_IMAGE and $P4A_BASE_IMAGE."
+
+  local version
+  version="$(_p4a_label_base_image "$created")" || exit 1
+  echo "Built $P4A_PROXY_IMAGE and $P4A_BASE_IMAGE (Claude Code $version, built $created)."
+}
+
+# The Base image's labels: when it was built (the OCI standard label) and
+# which Claude Code it has. Read them with
+#   p4a podman image inspect --format '{{json .Labels}}' localhost/podman4ai-base
+P4A_CREATED_LABEL=org.opencontainers.image.created
+P4A_CLAUDE_VERSION_LABEL=podman4ai.claude-code-version
+
+# _p4a_label_base_image CREATED
+# Add the labels to the Base image just built, with no network, and print
+# its Claude Code version. The version is known only once the image
+# exists, so the labels are a small build of their own on top of it.
+_p4a_label_base_image() {
+  local created=$1 out version
+  out="$(p4a_sandbox_podman run --rm --network none "$P4A_BASE_IMAGE" claude --version 2>&1)" || true
+  # Claude Code prints "2.1.312 (Claude Code)".
+  version="${out%% *}"
+  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*$ ]] \
+    || p4a_die "Claude Code doesn't run in the Base image just built: 'claude --version' said: ${out:-(nothing)}" \
+      "see the build output above for the Claude Code install step, then run 'p4a image build' again"
+  p4a_sandbox_podman build --network none --pull=never \
+    --build-arg "BASE_IMAGE=$P4A_BASE_IMAGE" \
+    --label "$P4A_CREATED_LABEL=$created" \
+    --label "$P4A_CLAUDE_VERSION_LABEL=$version" \
+    -t "$P4A_BASE_IMAGE" "$(p4a_native_path "$P4A_HOME/images/base-labels")" >/dev/null
+  echo "$version"
 }
 
 # Wait until the build proxy is listening, so the first build step doesn't

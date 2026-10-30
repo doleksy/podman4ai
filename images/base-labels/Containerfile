@@ -1,0 +1,6 @@
+# Labels the Base image just built, with no network and no changes to its
+# files: `p4a image build` passes the labels (build date, Claude Code
+# version) with --label, because they're known only once the Base image
+# exists.
+ARG BASE_IMAGE
+FROM $BASE_IMAGE
