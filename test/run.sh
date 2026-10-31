@@ -13,7 +13,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 if command -v shellcheck >/dev/null 2>&1; then
   # Globs rather than a fixed file list, so a new library or helper is linted too.
   (cd "$here/.." && shellcheck -x bin/* lib/*.sh test/*.sh test/*.bash \
-    test/host/*.sh test/fake/podman images/base/p4a-*) ||
+    test/host/*.sh test/fake/podman test/fake/powershell images/base/p4a-*) ||
     { echo "shellcheck found problems; not running the tests." >&2; exit 1; }
 else
   echo "shellcheck not found; skipped linting." >&2
