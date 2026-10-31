@@ -112,6 +112,25 @@ p4a podman image inspect --format '{{json .Labels}}' localhost/podman4ai-base
 # {"org.opencontainers.image.created":"2026-10-29T22:51:07Z","podman4ai.claude-code-version":"2.1.312",...}
 ```
 
+#### The Claude baseline
+
+Every Sandbox's Claude Code starts with the same setup, kept here in podman4ai rather than copied from Windows: [`images/base/claude-baseline/`](images/base/claude-baseline/). It has:
+
+- `settings.json`: the user settings, including permissions if any are added. It turns on the plugins (`enabledPlugins`) and says where each comes from (`extraKnownMarketplaces`, GitHub repositories only). It has no Windows paths or Windows hook commands.
+- Any other file placed in that folder lands at the same path under `~/.claude`. For example, a `CLAUDE.md` there becomes the user-level CLAUDE.md. There's none yet.
+
+The plugins are context-mode and mattpocock-skills. `p4a image build` downloads them from GitHub, with context-mode's dependencies from npm, through the build's Egress proxy, into a plugin seed in the Base image (`/opt/claude-seed`, Claude Code's `CLAUDE_CODE_PLUGIN_SEED_DIR`, ADR 0006). Claude Code loads them from there without downloading anything, so Sandboxes need no extra domains on their Allowlist. The seed belongs to root, so an Agent can't change a plugin's code.
+
+In a new Sandbox, the first interactive Claude session finds the plugins but starts without them: it says "Plugins changed. Run /reload-plugins to activate." Run `/reload-plugins` once. Every later session, and every `claude -p` run, has them from the start. To see them, use `/plugin` and its **Installed** tab. `claude plugin list` shows only plugins installed into `~/.claude`, so it says there are none.
+
+Each time a Sandbox starts, the baseline's files are copied into its Claude config volume, but never over a file that's already there. Whatever a Sandbox has changed since (settings, memory, the plugins' data) stays, through `p4a stop` and `p4a start` and when the Sandbox is recreated. Each project has its own Claude config volume, so memory never crosses between projects.
+
+To change the baseline:
+
+1. Edit `images/base/claude-baseline/`. For another plugin, add its marketplace to `extraKnownMarketplaces` and turn it on in `enabledPlugins`. If its download needs a domain beyond GitHub, add it to `share/build-allowlist`, never to the default Allowlist.
+2. Rebuild the images with `p4a image build`.
+3. Recreate each Sandbox that should have it. There's no `p4a recreate` yet (#13); until then, only new projects and Sandboxes `p4a start` recreates after a token change get the new image. New Sandboxes get the whole new baseline. An existing Sandbox gets the rebuilt image's plugins, and any baseline file it doesn't have yet. It keeps its own copies of the rest. To reset one of those to the baseline, delete it in the Sandbox (for example `rm ~/.claude/settings.json`) and run `p4a stop`, then `p4a start`.
+
 The Base image build has no open internet. Its only way out is an Egress proxy that allows just the domains in [`share/build-allowlist`](share/build-allowlist) (ADR 0003, ADR 0005). Afterwards `p4a` lists the domains the proxy allowed and refused. The full log stays in the stopped proxy container until the next build: `p4a podman logs podman4ai-build-proxy`. If a build fails because a domain was refused, and that domain should be allowed, add it to `share/build-allowlist`.
 
 `p4a` selects the Hyper-V provider and the Sandbox machine for its own Podman calls only. Plain `podman` in other shells keeps using its default machine.
@@ -145,4 +164,4 @@ test/host/secrets.sh       # each Sandbox sees only its own Repo token, no token
 test/host/base-image.sh    # every Base image tool runs as agent, user installs survive a restart, labels
 ```
 
-`test/host/isolation.sh` needs both images built. It creates two throwaway projects, `spoon-knife` (from `octocat/Spoon-Knife`) and `test-repo1` (from `octocat/test-repo1`), and runs each check inside a Sandbox with `p4a shell <project> -- <command>`. The checks cover: non-allowlisted domains refused and logged, allowlisted domains working through the proxy, `p4a blocked` listing a refused domain, `p4a allow` opening a domain within seconds for its own project only and `p4a disallow` closing it again, no outside DNS, no Host paths, non-root user with no capabilities, no sudo and no-new-privileges, no Podman socket, no route from one Sandbox to another or to its proxy, and the process and memory limits. Afterwards it removes both projects, their volumes and their network, even after a failure or Ctrl-C. It refuses to start if anything with those names already exists. To use other public repos, set `P4A_ISOLATION_REPO_A` and `P4A_ISOLATION_REPO_B` to `owner/repo`. It refuses to run inside a Sandbox.
+`test/host/isolation.sh` needs both images built. It creates two throwaway projects, `spoon-knife` (from `octocat/Spoon-Knife`) and `test-repo1` (from `octocat/test-repo1`), and runs each check inside a Sandbox with `p4a shell <project> -- <command>`. The checks cover: non-allowlisted domains refused and logged, allowlisted domains working through the proxy, `p4a blocked` listing a refused domain, `p4a allow` opening a domain within seconds for its own project only and `p4a disallow` closing it again, no outside DNS, no Host paths, non-root user with no capabilities, no sudo and no-new-privileges, no Podman socket, no route from one Sandbox to another or to its proxy, the Claude baseline (its plugins loaded from the image by a real Claude session, with nothing refused by the Egress proxy, context-mode's doctor passing, memory staying in its own project, and a recreated Sandbox keeping its Claude config), and the process and memory limits. The Claude session check sends one short prompt on the Agent token. Afterwards it removes both projects, their volumes and their network, even after a failure or Ctrl-C. It refuses to start if anything with those names already exists. To use other public repos, set `P4A_ISOLATION_REPO_A` and `P4A_ISOLATION_REPO_B` to `owner/repo`. It refuses to run inside a Sandbox.

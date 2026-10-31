@@ -1,0 +1,13 @@
+#!/bin/sh
+# p4a-entrypoint COMMAND...
+# The Base image's entrypoint: runs each time a Sandbox starts. It copies
+# the Claude baseline into the Sandbox's Claude config volume, then runs
+# COMMAND.
+set -u
+baseline="${P4A_CLAUDE_BASELINE:-/usr/local/share/podman4ai/claude-baseline}"
+config="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+(cd "$baseline" && find . -type f) | while IFS= read -r file; do
+  [ -e "$config/$file" ] && continue
+  mkdir -p "$(dirname "$config/$file")" && cp "$baseline/$file" "$config/$file" || exit 1
+done || echo "p4a-entrypoint: couldn't copy the Claude baseline from $baseline to $config (see the message above); Claude Code may start without it" >&2
+exec "$@"

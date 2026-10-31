@@ -108,6 +108,15 @@ COPY tmux.conf /etc/tmux.conf
 COPY --chmod=755 p4a-session p4a-git-credential /usr/local/bin/
 RUN git config --system credential.https://github.com.helper /usr/local/bin/p4a-git-credential
 
+# The Claude baseline: the settings every Sandbox's Claude Code starts
+# with (claude-baseline/, see the README). p4a-entrypoint copies it into
+# the Sandbox's Claude config volume each time the Sandbox starts, never
+# over a file already there. p4a-install-plugins installs its plugins
+# below.
+COPY claude-baseline/ /usr/local/share/podman4ai/claude-baseline/
+COPY --chmod=755 p4a-entrypoint /usr/local/bin/
+COPY --chmod=755 p4a-install-plugins /usr/local/sbin/
+
 # No sudo, so an Agent can never become root; no zsh; and no firewall
 # tooling, since the Egress proxy is the only way out. Fail the build if a
 # package ever brings one in.
@@ -130,9 +139,15 @@ WORKDIR /home/agent
 # Claude Code's self-updater is off: it updates only when the image is
 # rebuilt. Telemetry and error reporting are off too. So is npm's check
 # for a newer npm, which also comes with the image.
+#
+# Node's own HTTP clients use the Sandbox's proxy settings (http_proxy and
+# the rest, which point at the Egress proxy), as curl, git and npm do.
+# Without this, a Node program, such as a plugin's MCP server, can't reach
+# even an allowlisted domain.
 ENV PATH="/home/agent/.local/bin:/home/agent/.npm-global/bin:/home/agent/.bun/bin:${PATH}" \
     NPM_CONFIG_PREFIX=/home/agent/.npm-global \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NODE_USE_ENV_PROXY=1 \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     EDITOR=nano \
     VISUAL=nano \
@@ -143,10 +158,22 @@ ENV PATH="/home/agent/.local/bin:/home/agent/.npm-global/bin:/home/agent/.bun/bi
 # Claude Code via the native installer. Without the non-essential traffic
 # setting the installer also calls api.anthropic.com, and it runs
 # `npm uninstall -g` to remove any npm install of Claude Code, which
-# contacts the npm registry unless npm is offline. Neither domain is on the
-# build Allowlist (the calls would be refused, and the install works either
-# way).
+# contacts the npm registry unless npm is offline. Neither call is needed
+# (api.anthropic.com isn't on the build Allowlist, and the install works
+# either way).
 RUN curl -fsSL https://claude.ai/install.sh \
   | CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 NPM_CONFIG_OFFLINE=true bash
 
+# The baseline's plugins, downloaded now (from GitHub, with context-mode's
+# dependencies from npm, all through the Egress proxy) into a plugin seed: a folder Claude Code loads plugins from in
+# place, without downloading them. The seed belongs to root, so an Agent
+# can't change a plugin's code; plugins update only when the image is
+# rebuilt. Each Sandbox's Claude config volume keeps only its settings,
+# memory and the plugins' own data.
+USER root
+RUN p4a-install-plugins /usr/local/share/podman4ai/claude-baseline/settings.json /opt/claude-seed
+USER agent
+ENV CLAUDE_CODE_PLUGIN_SEED_DIR=/opt/claude-seed
+
+ENTRYPOINT ["/usr/local/bin/p4a-entrypoint"]
 CMD ["bash"]

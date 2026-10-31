@@ -393,6 +393,103 @@ exit $status
 EOF
 }
 
+# ---- The Claude baseline (#11) ---------------------------------------------
+
+# The plugins the Claude baseline turns on (images/base/claude-baseline).
+BASELINE_PLUGINS=(context-mode@context-mode mattpocock-skills@claude-plugins-official)
+# Where the Base image keeps the plugins (CLAUDE_CODE_PLUGIN_SEED_DIR).
+PLUGIN_SEED=/opt/claude-seed
+
+# A real Claude Code session lists every baseline plugin as loaded (so
+# installed and enabled) from the Base image's plugin seed, and nothing it
+# does is refused by the Egress proxy: the plugins need no domain beyond
+# the default Allowlist. (One short prompt, on the Agent token.) `claude
+# plugin list` can't show this: it lists only plugins installed into
+# ~/.claude, never a seed's.
+baseline_plugins_load_within_the_allowlist() {
+  local before after out
+  before="$(proxy_log_count "$A" " refused ")" || return 1
+  out="$(in_sandbox "$A" claude -p 'Reply with the single word ok.' \
+    --output-format stream-json --verbose --max-turns 1 2>&1)" \
+    || { echo "claude -p failed: $out"; return 1; }
+  # The session's init event lists each loaded plugin and its folder.
+  # shellcheck disable=SC2016 # the ${...} are JavaScript's, not the shell's
+  out="$(node -e '
+    const init = require("fs").readFileSync(0, "utf8").split("\n")
+      .map((l) => { try { return JSON.parse(l); } catch { return {}; } })
+      .find((e) => e.type === "system" && e.subtype === "init");
+    if (!init) { console.log("no init event"); process.exit(1); }
+    for (const p of init.plugins ?? []) console.log(`${p.name} ${p.path}`);
+  ' <<< "$out")" || { echo "$out"; return 1; }
+  local plugin status=0
+  for plugin in "${BASELINE_PLUGINS[@]}"; do
+    grep -qE "^${plugin%@*}(@[^ ]*)? $PLUGIN_SEED/" <<< "$out" \
+      || { echo "the session didn't load $plugin from $PLUGIN_SEED"; status=1; }
+  done
+  (( status == 0 )) || echo "loaded: ${out:-(none)}"
+  after="$(proxy_log_count "$A" " refused ")" || return 1
+  if (( after > before )); then
+    echo "the Egress proxy refused connections during the session:"
+    p4a podman logs "podman4ai-$A-proxy" 2>&1 | grep -F " refused " | tail -n "$((after - before))"
+    status=1
+  fi
+  return "$status"
+}
+
+# context-mode's own doctor finds nothing wrong: no FAIL and no WARN.
+context_mode_doctor_passes() {
+  script_in "$A" "$PLUGIN_SEED" <<'EOF'
+root="$(ls -d "$1"/cache/context-mode/context-mode/*/ | sort -V | tail -1)"
+out="$(CLAUDE_PLUGIN_ROOT="$root" node "$root/cli.bundle.mjs" doctor 2>&1)" \
+  || { echo "the doctor exited with $?:"; echo "$out"; exit 1; }
+if grep -E 'FAIL|WARN' <<< "$out"; then exit 1; fi
+EOF
+}
+
+# A memory written in A's Sandbox stays in A's Claude config volume.
+MEMORY_MARK="p4a-isolation-memory-$$"
+memory_stays_in_its_project() {
+  script_in "$A" "$MEMORY_MARK" <<'EOF' || { echo "couldn't write a memory in $A"; return 1; }
+dir="$HOME/.claude/projects/-workspace-check/memory"
+mkdir -p "$dir" && echo "$1" > "$dir/p4a-check.md"
+EOF
+  in_sandbox "$A" grep -rqF "$MEMORY_MARK" /home/agent/.claude/projects \
+    || { echo "the memory isn't in $A's Claude config volume"; return 1; }
+  if in_sandbox "$B" grep -rqF "$MEMORY_MARK" /home/agent/.claude; then
+    echo "a memory written in $A appears in $B's Claude config volume"
+    return 1
+  fi
+}
+
+# Replacing A's Sandbox keeps its Claude config volume: the memory and a
+# change to its baseline settings are still there, not reset to the
+# baseline. Recreates the Sandbox as p4a does when its tokens change.
+SETTINGS_MARK="p4a-isolation-settings-$$"
+recreate_keeps_claude_config() {
+  script_in "$A" "$SETTINGS_MARK" <<'EOF' || { echo "couldn't change $A's settings"; return 1; }
+node -e '
+  const fs = require("fs"), f = process.env.HOME + "/.claude/settings.json";
+  const s = JSON.parse(fs.readFileSync(f, "utf8"));
+  s.p4aIsolationCheck = process.argv[1];
+  fs.writeFileSync(f, JSON.stringify(s, null, 2));
+' "$1"
+EOF
+  local out
+  out="$( {
+    p4a stop "$A" && p4a podman rm "podman4ai-$A" \
+      && bash -c 'set -euo pipefail; P4A_HOME="$1"
+          for lib in common podman hyperv machine image secret project allowlist; do
+            source "$P4A_HOME/lib/$lib.sh"
+          done
+          _p4a_create_sandbox "$2"' _ "$repo" "$A" \
+      && p4a start "$A"
+  } 2>&1)" || { echo "couldn't recreate $A's Sandbox: $out"; return 1; }
+  in_sandbox "$A" grep -qF "$SETTINGS_MARK" /home/agent/.claude/settings.json \
+    || { echo "the change to $A's settings.json is gone"; return 1; }
+  in_sandbox "$A" grep -rqF "$MEMORY_MARK" /home/agent/.claude/projects \
+    || { echo "$A's memory is gone"; return 1; }
+}
+
 # A can't open a connection to any address of B's Sandbox or B's Egress
 # proxy, directly or through A's own Egress proxy. B's Sandbox runs a web
 # server for this, which B itself can reach (start_listener_in_b).
@@ -544,6 +641,12 @@ main() {
   check "the user has no sudo" user_has_no_sudo
   check "no-new-privileges is set, so no program can gain privileges" no_new_privileges_is_set
   check "no Podman socket exists inside the Sandbox" no_podman_socket
+  check "a Claude session loads the baseline's plugins from the image, with nothing refused by the Egress proxy" \
+    baseline_plugins_load_within_the_allowlist
+  check "context-mode's doctor passes" context_mode_doctor_passes
+  check "a memory written in A's Sandbox doesn't appear in B's" memory_stays_in_its_project
+  check "recreating a Sandbox keeps its Claude config volume, and the baseline doesn't undo its changes" \
+    recreate_keeps_claude_config
   check "Sandbox A cannot reach Sandbox B or B's Egress proxy" sandbox_a_cannot_reach_b
   check "the process limit is in effect" process_limit_is_in_effect
   check "the memory limit is in effect" memory_limit_is_in_effect
