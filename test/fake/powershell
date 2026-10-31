@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Stand-in Windows PowerShell on PATH for the unit tests.
+#
+# Records each call's arguments, joined by spaces, as one line of
+# $FAKE_POWERSHELL_DIR/calls, then replies with canned output from the rules
+# the test set up with `fake_powershell` (see test/helpers.bash): the last
+# rule whose text appears anywhere in the arguments wins.
+set -euo pipefail
+dir=${FAKE_POWERSHELL_DIR:?fake powershell: FAKE_POWERSHELL_DIR is not set}
+joined="$*"
+printf '%s\n' "$joined" >> "$dir/calls"
+
+rule=""
+while read -r id; do
+  [[ -n $id ]] || continue
+  if [[ $joined == *"$(cat "$dir/rules/$id/match")"* ]]; then
+    rule="$dir/rules/$id"
+  fi
+done < <(find "$dir/rules" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -n)
+
+[[ -n $rule ]] || exit 0
+[[ ! -e $rule/stdout ]] || cat "$rule/stdout"
+[[ ! -e $rule/stderr ]] || cat "$rule/stderr" >&2
+exit "$(cat "$rule/exit" 2>/dev/null || echo 0)"

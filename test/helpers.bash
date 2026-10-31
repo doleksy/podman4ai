@@ -30,6 +30,50 @@ setup() {
   sandbox_machine_mounts '[]'
   # Like Podman, removing the machine deletes its config.
   fake_podman "machine rm" --remove "$SANDBOX_CONFIG_DIR/podman4ai.json"
+
+  export FAKE_POWERSHELL_DIR="$BATS_TEST_TMPDIR/powershell"
+  mkdir -p "$FAKE_POWERSHELL_DIR/rules"
+  : > "$FAKE_POWERSHELL_DIR/calls"
+  # By default the Sandbox machine's VM has Hyper-V dynamic memory off.
+  dynamic_memory False
+}
+
+# fake_powershell TEXT [--stdout TEXT] [--stderr TEXT] [--exit N]
+# PowerShell calls whose arguments contain TEXT get this reply. A later rule
+# beats an earlier one.
+fake_powershell() {
+  local match=$1; shift
+  local n
+  n=$(( $(find "$FAKE_POWERSHELL_DIR/rules" -mindepth 1 -maxdepth 1 | wc -l) + 1 ))
+  local rule="$FAKE_POWERSHELL_DIR/rules/$n"
+  mkdir -p "$rule"
+  printf '%s' "$match" > "$rule/match"
+  while (( $# )); do
+    case $1 in
+      --stdout) printf '%s\r\n' "$2" > "$rule/stdout" ;;
+      --stderr) printf '%s\r\n' "$2" > "$rule/stderr" ;;
+      --exit) printf '%s' "$2" > "$rule/exit" ;;
+      *) echo "fake_powershell: unknown option $1" >&2; return 1 ;;
+    esac
+    shift 2
+  done
+}
+
+# dynamic_memory True|False
+# Sets what Hyper-V reports as the Sandbox machine VM's dynamic-memory
+# setting. Like PowerShell, the reply ends in CRLF.
+dynamic_memory() {
+  fake_powershell "Get-VMMemory" --stdout "$1"
+}
+
+# Print one line per recorded PowerShell call: its arguments joined by spaces.
+powershell_calls() {
+  cat "$FAKE_POWERSHELL_DIR/calls"
+}
+
+# Print the recorded PowerShell calls that contain TEXT.
+powershell_calls_with() {
+  grep -F -- "$1" "$FAKE_POWERSHELL_DIR/calls" || true
 }
 
 # sandbox_machine_mounts JSON

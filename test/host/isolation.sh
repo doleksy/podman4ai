@@ -451,7 +451,8 @@ EOF
 
 # Allocate and fill memory in 64 MiB steps up to 4.5 GiB. With a 4 GiB
 # limit the kernel kills it first. (The Sandbox machine has no swap.) The
-# steps are paced so Hyper-V's dynamic memory can grow the machine.
+# steps are paced so that, if Hyper-V dynamic memory is still on, it has a
+# chance to grow the machine.
 #
 # The Sandbox machine's kernel log must then show the kill was by the
 # Sandbox's own memory limit: a kill because the whole machine ran out of
@@ -478,7 +479,7 @@ memory_limit_is_in_effect() {
     grep -qE -- "$limit_kill" <<< "$new" && return 0
     if grep -q CONSTRAINT_NONE <<< "$new"; then
       echo "the whole Sandbox machine ran out of memory before the Sandbox reached its limit."
-      echo "Hyper-V's dynamic memory may be keeping the machine too small; see 'Get-VMMemory podman4ai'."
+      echo "Hyper-V dynamic memory may be keeping the machine too small; 'p4a machine status' warns if it's on."
       return 1
     fi
     sleep 1

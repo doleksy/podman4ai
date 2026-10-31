@@ -8,6 +8,8 @@ P4A_HOME="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 source "$P4A_HOME/lib/common.sh"
 # shellcheck source=../lib/podman.sh
 source "$P4A_HOME/lib/podman.sh"
+# shellcheck source=../lib/hyperv.sh
+source "$P4A_HOME/lib/hyperv.sh"
 # shellcheck source=../lib/machine.sh
 source "$P4A_HOME/lib/machine.sh"
 # shellcheck source=../lib/image.sh

@@ -76,6 +76,42 @@ load helpers
   ! podman_calls | grep -q "machine rm"
 }
 
+@test "create turns off Hyper-V dynamic memory for the new machine" {
+  machines
+  run p4a machine create
+  [ "$status" -eq 0 ]
+  [ "$(powershell_calls_with "Set-VMMemory" | wc -l)" -eq 1 ]
+  [[ "$(powershell_calls_with "Set-VMMemory")" == *"Set-VMMemory -VMName podman4ai -DynamicMemoryEnabled \$false"* ]]
+}
+
+@test "create keeps the new machine and prints the fix if turning off dynamic memory fails" {
+  machines
+  fake_powershell "Set-VMMemory" --exit 1 \
+    --stderr "Set-VMMemory : You do not have the required permission to complete this task."
+  run p4a machine create
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"dynamic memory"* ]]
+  [[ "$output" == *"Set-VMMemory -VMName podman4ai -DynamicMemoryEnabled \$false"* ]]
+  [[ "$output" != *"Created."* ]]
+  ! podman_calls | grep -q "machine rm"
+}
+
+@test "create doesn't touch Hyper-V memory when podman machine init fails" {
+  machines
+  fake_podman "machine init" --stderr "Error: init failed" --exit 125
+  run p4a machine create
+  [ "$status" -ne 0 ]
+  [ -z "$(powershell_calls)" ]
+}
+
+@test "create doesn't touch Hyper-V memory when the new machine is removed for sharing drives" {
+  machines
+  sandbox_machine_mounts "$WINDOWS_DRIVE_MOUNTS"
+  run p4a machine create
+  [ "$status" -eq 1 ]
+  [ -z "$(powershell_calls)" ]
+}
+
 @test "create refuses when the Sandbox machine already exists" {
   machines "podman4ai hyperv stopped"
   run p4a machine create
@@ -220,6 +256,80 @@ load helpers
   [ "$status" -eq 0 ]
   [[ "$output" == *"podman4ai"*"running"* ]]
   [[ "$output" == *"podman-machine-default is also running"* ]]
+}
+
+@test "status warns, with the fix, when a running Sandbox machine has Hyper-V dynamic memory on" {
+  machines "podman4ai hyperv running"
+  dynamic_memory True
+  run p4a machine status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"podman4ai: running"* ]]
+  [[ "$output" == *"warning:"*"dynamic memory is on"* ]]
+  [[ "$output" == *"p4a machine stop"*"Set-VMMemory -VMName podman4ai -DynamicMemoryEnabled \$false"*"p4a machine start"* ]]
+}
+
+@test "status warns, with the fix, when a stopped Sandbox machine has Hyper-V dynamic memory on" {
+  machines "podman4ai hyperv stopped"
+  dynamic_memory True
+  run p4a machine status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"podman4ai: stopped"* ]]
+  [[ "$output" == *"warning:"*"dynamic memory is on"* ]]
+  [[ "$output" == *"Set-VMMemory -VMName podman4ai -DynamicMemoryEnabled \$false"*"p4a machine start"* ]]
+}
+
+@test "status still warns about dynamic memory when Podman in the running Sandbox machine doesn't answer" {
+  machines "podman4ai hyperv running"
+  dynamic_memory True
+  podman_not_answering
+  run p4a machine status
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"warning:"*"dynamic memory is on"* ]]
+  [[ "$output" == *"doesn't answer"* ]]
+}
+
+@test "status prints no dynamic-memory warning when it's off" {
+  machines "podman4ai hyperv running"
+  dynamic_memory False
+  run p4a machine status
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"dynamic memory"* ]]
+  [[ "$output" != *"warning"* ]]
+  [ -n "$(powershell_calls_with "Get-VMMemory -VMName podman4ai")" ]
+}
+
+@test "status warns that it couldn't check dynamic memory, and still succeeds, when Hyper-V can't say" {
+  machines "podman4ai hyperv stopped"
+  fake_powershell "Get-VMMemory" --exit 1 \
+    --stderr "Get-VMMemory : You do not have the required permission to complete this task."
+  run p4a machine status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"podman4ai: stopped"* ]]
+  [[ "$output" == *"warning: couldn't check"*"dynamic memory"* ]]
+}
+
+@test "status treats an unexpected answer from Hyper-V as unchecked" {
+  machines "podman4ai hyperv stopped"
+  dynamic_memory ""
+  run p4a machine status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"warning: couldn't check"*"dynamic memory"* ]]
+}
+
+@test "status doesn't ask Hyper-V about a Sandbox machine that doesn't exist" {
+  machines
+  run p4a machine status
+  [ "$status" -eq 0 ]
+  [ -z "$(powershell_calls)" ]
+}
+
+@test "start makes no Hyper-V memory call" {
+  machines "podman4ai hyperv stopped"
+  dynamic_memory True
+  run p4a machine start
+  [ "$status" -eq 0 ]
+  [ -n "$(podman_calls_starting "machine start")" ]
+  [ -z "$(powershell_calls)" ]
 }
 
 @test "status says a running Sandbox machine is unusable when Podman doesn't answer, and how to fix it" {
