@@ -48,7 +48,7 @@ cleanup() {
     p4a podman network rm -f "podman4ai-$project" >/dev/null 2>&1 || true
     p4a podman volume rm -f "podman4ai-$project-source" "podman4ai-$project-claude" >/dev/null 2>&1 || true
     p4a podman secret rm "podman4ai-$project-repo-token" >/dev/null 2>&1 || true
-    rm -f "$config/projects/$project.conf"
+    rm -f "$config/projects/$project.conf" "$config/projects/$project.allowlist"
   done
 }
 trap cleanup EXIT

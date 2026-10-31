@@ -99,7 +99,7 @@ Egress proxies created before Allowlist additions existed can't apply them. Rebu
 `p4a image build` needs the Sandbox machine running. It builds two images:
 
 - `localhost/podman4ai-proxy`, the Egress proxy (`images/proxy/`). Its own build has no network.
-- `localhost/podman4ai-base`, the Base image (`images/base/`): Debian bookworm with Claude Code, Node (the latest LTS), Python with uv, Bun, gh, git with git-delta, ripgrep, jq, fzf, less, nano and tmux (mouse on, the project's name in the status bar), a non-root user `agent`, and no sudo, zsh or firewall tooling. It's rebuilt from scratch each time, so it gets the latest OS patches and the latest release of each tool. Claude Code's self-updater, telemetry and error reporting are off; it updates when the image is rebuilt.
+- `localhost/podman4ai-base`, the Base image (`images/base/`): Debian bookworm with Claude Code, Node (the latest LTS), Python with uv, ruff and ty, Bun, gh, git with git-delta, ripgrep, jq, fzf, less, nano and tmux (mouse on, the project's name in the status bar), a non-root user `agent`, and no sudo, zsh or firewall tooling. It's rebuilt from scratch each time, so it gets the latest OS patches and the latest release of each tool. Claude Code's self-updater, telemetry and error reporting are off; it updates when the image is rebuilt.
 
 `agent` installs its own tools without root, into its home: `npm install -g` (into `~/.npm-global`), `uv tool install`, `bun add -g` and `pip install --user`. They're on PATH, and survive `p4a stop` and `p4a start`. They're lost when the Sandbox is recreated, which `p4a start` does after a token changes, and they aren't in a Sandbox created from a rebuilt image.
 

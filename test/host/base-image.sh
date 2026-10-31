@@ -40,7 +40,7 @@ cleanup() {
   p4a podman rm -f -t 0 "podman4ai-$project" "podman4ai-$project-proxy" >/dev/null 2>&1 || true
   p4a podman network rm -f "podman4ai-$project" >/dev/null 2>&1 || true
   p4a podman volume rm -f "podman4ai-$project-source" "podman4ai-$project-claude" >/dev/null 2>&1 || true
-  rm -f "$config/projects/$project.conf"
+  rm -f "$config/projects/$project.conf" "$config/projects/$project.allowlist"
 }
 trap cleanup EXIT
 p4a new octocat/Hello-World >/dev/null
@@ -49,7 +49,7 @@ in_sandbox() { p4a shell "$project" -- "$@" < /dev/null; }
 echo "--- 1. Every tool runs, as the non-root user"
 uid="$(in_sandbox id -u)"
 if [[ $uid != 0 ]]; then pass "the Sandbox runs as $(in_sandbox id -un) (uid $uid)"; else fail "the Sandbox runs as root"; fi
-for tool in node npm python3 pip uv uvx bun bunx gh rg jq fzf delta less nano tmux claude; do
+for tool in node npm python3 pip uv uvx ruff ty bun bunx gh rg jq fzf delta less nano tmux claude; do
   flag=--version
   [[ $tool == tmux ]] && flag=-V
   if out="$(in_sandbox "$tool" "$flag" 2>&1)"; then
