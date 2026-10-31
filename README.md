@@ -151,6 +151,14 @@ winget install --id koalaman.shellcheck
 
 The Egress proxy tests (`test/proxy.bats`) run the real proxy under Node on the Host, against a stand-in web server on localhost.
 
+Under Git Bash the full run takes far longer than on Linux, because every test starts many processes and starting one is slow on Windows. An antivirus that checks each new process makes this much worse: real-time scanning with no exclusions took the run from about 20 minutes to hours. Check with:
+
+```bash
+time (for i in $(seq 50); do /usr/bin/true; done)
+```
+
+Over about 2 seconds (40 ms a process) means something is slowing process starts. Exclude Git (`C:\Program Files\Git\`) and Node (`C:\Program Files\nodejs\`) from your antivirus's real-time scanning, or run just the `.bats` files you're changing and let CI run the rest.
+
 CI runs `test/run.sh`, so the linting and all the unit tests, on Linux for every pull request and every push to `main` ([`.github/workflows/unit-tests.yml`](.github/workflows/unit-tests.yml)). CI pins shellcheck 0.11.0; other versions can report different things, so match it locally (`shellcheck --version`). CI doesn't run the Host-only checks below; they need the real Sandbox machine, so run them by hand.
 
 ### Host-only checks

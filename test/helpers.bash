@@ -7,7 +7,12 @@
 P4A_REPO="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 
 setup() {
-  export FAKE_PODMAN_DIR="$BATS_TEST_TMPDIR/podman"
+  # In the form node understands, worked out here once rather than by the
+  # stand-in podman on every call: it runs hundreds of times, and each extra
+  # process is slow under Git Bash.
+  FAKE_PODMAN_DIR="$(_native_path "$BATS_TEST_TMPDIR/podman")"
+  FAKE_PODMAN_JS="$(_native_path "$P4A_REPO/test/fake/podman.js")"
+  export FAKE_PODMAN_DIR FAKE_PODMAN_JS
   mkdir -p "$FAKE_PODMAN_DIR/rules"
   : > "$FAKE_PODMAN_DIR/calls.jsonl"
 
@@ -43,9 +48,9 @@ setup() {
 # beats an earlier one.
 fake_powershell() {
   local match=$1; shift
-  local n
-  n=$(( $(find "$FAKE_POWERSHELL_DIR/rules" -mindepth 1 -maxdepth 1 | wc -l) + 1 ))
-  local rule="$FAKE_POWERSHELL_DIR/rules/$n"
+  local rules=("$FAKE_POWERSHELL_DIR"/rules/*)
+  [[ -e ${rules[0]} ]] || rules=()
+  local rule="$FAKE_POWERSHELL_DIR/rules/$(( ${#rules[@]} + 1 ))"
   mkdir -p "$rule"
   printf '%s' "$match" > "$rule/match"
   while (( $# )); do
@@ -92,9 +97,9 @@ WINDOWS_DRIVE_MOUNTS='[{"OriginalInput":"C:\\Users\\me:/Users/me","ReadOnly":fal
 # delete FILE if given. A later rule beats an earlier one.
 fake_podman() {
   local prefix=$1; shift
-  local n
-  n=$(( $(find "$FAKE_PODMAN_DIR/rules" -mindepth 1 -maxdepth 1 | wc -l) + 1 ))
-  local rule="$FAKE_PODMAN_DIR/rules/$n"
+  local rules=("$FAKE_PODMAN_DIR"/rules/*)
+  [[ -e ${rules[0]} ]] || rules=()
+  local rule="$FAKE_PODMAN_DIR/rules/$(( ${#rules[@]} + 1 ))"
   mkdir -p "$rule"
   printf '%s' "$prefix" > "$rule/prefix"
   while (( $# )); do
