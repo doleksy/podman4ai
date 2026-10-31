@@ -150,6 +150,7 @@ p4a_new() {
   printf 'repo=%s\nsubnet=%s\nsource=%s\n' "$repo" "$subnet" "$source_dir" > "$conf"
   # From here on, a failure removes everything this command created. The
   # name is expanded now, which is safe: it matches P4A_PROJECT_NAME_PATTERN.
+  # shellcheck disable=SC2064 # expanded now on purpose, see above
   trap "_p4a_undo_new $project" EXIT
   _p4a_create_additions_file "$project"
 
