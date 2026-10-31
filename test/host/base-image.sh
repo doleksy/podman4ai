@@ -40,7 +40,7 @@ cleanup() {
   p4a podman rm -f -t 0 "podman4ai-$project" "podman4ai-$project-proxy" >/dev/null 2>&1 || true
   p4a podman network rm -f "podman4ai-$project" >/dev/null 2>&1 || true
   p4a podman volume rm -f "podman4ai-$project-source" "podman4ai-$project-claude" >/dev/null 2>&1 || true
-  rm -f "$config/projects/$project.conf"
+  rm -f "$config/projects/$project.conf" "$config/projects/$project.allowlist"
 }
 trap cleanup EXIT
 p4a new octocat/Hello-World >/dev/null
