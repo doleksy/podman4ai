@@ -10,7 +10,9 @@ p4a_repo_token_secret() { echo "podman4ai-$1-repo-token"; }
 
 # Where the tokens appear in a Sandbox: /run/secrets/<name>, readable only
 # by the Base image's user (uid 1000).
+# shellcheck disable=SC2034 # read by lib/project.sh
 P4A_AGENT_TOKEN_FILE=agent-token
+# shellcheck disable=SC2034 # read by lib/project.sh
 P4A_REPO_TOKEN_FILE=repo-token
 
 p4a_secret() {
