@@ -93,6 +93,7 @@ check() {
     echo "PASS  $property"
   else
     echo "FAIL  $property"
+    # shellcheck disable=SC2001 # indents every line, not just one
     [[ -z $output ]] || sed 's/^/        /' <<< "$output"
     failures=$((failures + 1))
   fi
@@ -171,6 +172,7 @@ create_project() {
   local out
   if ! out="$(p4a new "$1" 2>&1)"; then
     echo "Couldn't create the throwaway project from $1, so no checks ran:" >&2
+    # shellcheck disable=SC2001 # indents every line, not just one
     sed 's/^/  /' <<< "$out" >&2
     exit 1
   fi
