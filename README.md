@@ -22,6 +22,8 @@ Step 4 needs admin because the first time Podman creates a Hyper-V machine, it r
 
 Everything else works from a normal Git Bash.
 
+`p4a machine create` also turns off Hyper-V dynamic memory, which Podman turns on, so the Sandbox machine always has its full 12 GB. Otherwise one Sandbox filling its memory limit can run the whole machine out of memory, and the kernel then kills a process in any container. For a machine created before p4a did this, `p4a machine status` shows a warning with the fix: `p4a machine stop`, then `Set-VMMemory -VMName podman4ai -DynamicMemoryEnabled $false` in PowerShell, then `p4a machine start`.
+
 After a Windows restart the Sandbox machine can be running while Podman's `gvproxy` helper isn't, so Podman in it doesn't answer. `p4a machine status` and every command that needs the Sandbox machine say so. Fix it with `p4a machine stop`, then `p4a machine start`.
 
 ### Commands

@@ -99,6 +99,11 @@ p4a_machine_create() {
       --disk-size "$P4A_MACHINE_DISK_GB" \
       "$P4A_MACHINE"
   _p4a_check_no_drive_sharing
+  # The new machine is stopped, so this applies straight away. If it fails,
+  # keep the machine: it's fine once dynamic memory is off.
+  p4a_hyperv_turn_off_dynamic_memory \
+    || p4a_die "created the Sandbox machine $P4A_MACHINE, but couldn't turn off its Hyper-V dynamic memory, so it may not get its full $P4A_MACHINE_MEMORY_GB GB" \
+      "run '$P4A_HYPERV_FIXED_MEMORY_COMMAND' in PowerShell, then start it with 'p4a machine start'"
   echo "Created. Start it with: p4a machine start"
 }
 
@@ -193,6 +198,7 @@ p4a_machine_status() {
       ;;
     *) echo "Sandbox machine $P4A_MACHINE: $P4A_SANDBOX_STATE" ;;
   esac
+  [[ $P4A_SANDBOX_STATE == missing ]] || _p4a_report_dynamic_memory
   # Podman lets a WSL machine start while the Sandbox machine runs (ADR 0004).
   if [[ $P4A_SANDBOX_STATE == running ]]; then
     local other
@@ -200,4 +206,18 @@ p4a_machine_status() {
       echo "  warning: the Podman machine $other is also running; stop it with 'podman machine stop $other'"
     done
   fi
+}
+
+# Warn if the Sandbox machine has Hyper-V dynamic memory on, as machines
+# created before p4a turned it off do (ADR 0004).
+_p4a_report_dynamic_memory() {
+  local on fix
+  if ! on="$(p4a_hyperv_dynamic_memory)"; then
+    echo "  warning: couldn't check whether Hyper-V dynamic memory is off for the machine; check it in PowerShell with 'Get-VMMemory -VMName $P4A_MACHINE'"
+    return 0
+  fi
+  [[ $on == True ]] || return 0
+  fix="run '$P4A_HYPERV_FIXED_MEMORY_COMMAND' in PowerShell, then 'p4a machine start'"
+  [[ $P4A_SANDBOX_STATE == stopped ]] || fix="stop it with 'p4a machine stop', $fix"
+  echo "  warning: Hyper-V dynamic memory is on, so the machine may not get its full $P4A_MACHINE_MEMORY_GB GB; $fix"
 }
