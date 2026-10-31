@@ -1,6 +1,6 @@
 # The baseline's plugins live in a read-only seed in the Base image, not in each Claude config volume
 
-The Claude baseline's plugins (context-mode, mattpocock-skills) are downloaded when the Base image is built, into a plugin seed at `/opt/claude-seed` that belongs to root. Claude Code loads them from there in place (`CLAUDE_CODE_PLUGIN_SEED_DIR`) and never writes to it. The rest of the baseline, `images/base/claude-baseline/`, is copied into each Sandbox's Claude config volume when the Sandbox starts, never over a file already there.
+The Claude baseline's plugins (context-mode, mattpocock-skills) are downloaded when the Base image is built, into a plugin seed at `/opt/claude-seed` that belongs to root. Claude Code loads them from there in place (`CLAUDE_CODE_PLUGIN_SEED_DIR`) and never writes to it. The rest of the baseline, `images/base/claude-baseline/`, is copied into each Sandbox's Claude config volume on its first start, never over a file already there.
 
 ## Considered Options
 

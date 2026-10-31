@@ -463,16 +463,20 @@ EOF
 
 # Replacing A's Sandbox keeps its Claude config volume: the memory and a
 # change to its baseline settings are still there, not reset to the
-# baseline. Recreates the Sandbox as p4a does when its tokens change.
-SETTINGS_MARK="p4a-isolation-settings-$$"
+# baseline. Recreates the Sandbox as p4a does when its tokens change
+# (until `p4a recreate` exists, #13, which should replace this).
+RECREATE_MARK="p4a-isolation-recreate-$$"
 recreate_keeps_claude_config() {
-  script_in "$A" "$SETTINGS_MARK" <<'EOF' || { echo "couldn't change $A's settings"; return 1; }
+  script_in "$A" "$RECREATE_MARK" <<'EOF' || { echo "couldn't change $A's Claude config"; return 1; }
+set -e
 node -e '
   const fs = require("fs"), f = process.env.HOME + "/.claude/settings.json";
   const s = JSON.parse(fs.readFileSync(f, "utf8"));
   s.p4aIsolationCheck = process.argv[1];
   fs.writeFileSync(f, JSON.stringify(s, null, 2));
 ' "$1"
+dir="$HOME/.claude/projects/-workspace-check/memory"
+mkdir -p "$dir" && echo "$1" > "$dir/p4a-recreate-check.md"
 EOF
   local out
   out="$( {
@@ -484,9 +488,9 @@ EOF
           _p4a_create_sandbox "$2"' _ "$repo" "$A" \
       && p4a start "$A"
   } 2>&1)" || { echo "couldn't recreate $A's Sandbox: $out"; return 1; }
-  in_sandbox "$A" grep -qF "$SETTINGS_MARK" /home/agent/.claude/settings.json \
+  in_sandbox "$A" grep -qF "$RECREATE_MARK" /home/agent/.claude/settings.json \
     || { echo "the change to $A's settings.json is gone"; return 1; }
-  in_sandbox "$A" grep -rqF "$MEMORY_MARK" /home/agent/.claude/projects \
+  in_sandbox "$A" grep -rqF "$RECREATE_MARK" /home/agent/.claude/projects \
     || { echo "$A's memory is gone"; return 1; }
 }
 

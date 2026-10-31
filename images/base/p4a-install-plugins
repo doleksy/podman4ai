@@ -14,7 +14,7 @@ settings=$1 seed=$2
 
 # One "marketplace OWNER/REPO" or "plugin NAME@MARKETPLACE" line each.
 # shellcheck disable=SC2016 # the ${...} are JavaScript's, not the shell's
-plan="$(node -e '
+steps="$(node -e '
 const s = JSON.parse(require("fs").readFileSync(0, "utf8"));
 for (const [name, m] of Object.entries(s.extraKnownMarketplaces ?? {})) {
   if (m?.source?.source !== "github" || !m.source.repo) {
@@ -41,7 +41,7 @@ while read -r kind arg; do
     plugin) claude plugin install "$arg" ;;
   esac
 done <<EOF
-$plan
+$steps
 EOF
 
 # Claude Code installs a plugin pinned to a git commit (as

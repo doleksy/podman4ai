@@ -110,7 +110,7 @@ RUN git config --system credential.https://github.com.helper /usr/local/bin/p4a-
 
 # The Claude baseline: the settings every Sandbox's Claude Code starts
 # with (claude-baseline/, see the README). p4a-entrypoint copies it into
-# the Sandbox's Claude config volume each time the Sandbox starts, never
+# the Sandbox's Claude config volume on the Sandbox's first start, never
 # over a file already there. p4a-install-plugins installs its plugins
 # below.
 COPY claude-baseline/ /usr/local/share/podman4ai/claude-baseline/
@@ -165,11 +165,11 @@ RUN curl -fsSL https://claude.ai/install.sh \
   | CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 NPM_CONFIG_OFFLINE=true bash
 
 # The baseline's plugins, downloaded now (from GitHub, with context-mode's
-# dependencies from npm, all through the Egress proxy) into a plugin seed: a folder Claude Code loads plugins from in
-# place, without downloading them. The seed belongs to root, so an Agent
-# can't change a plugin's code; plugins update only when the image is
-# rebuilt. Each Sandbox's Claude config volume keeps only its settings,
-# memory and the plugins' own data.
+# dependencies from npm, all through the Egress proxy) into a plugin seed:
+# a folder Claude Code loads plugins from in place, without downloading
+# them. The seed belongs to root, so an Agent can't change a plugin's code;
+# plugins update only when the image is rebuilt. Each Sandbox's Claude
+# config volume keeps only its settings, memory and the plugins' own data.
 USER root
 RUN p4a-install-plugins /usr/local/share/podman4ai/claude-baseline/settings.json /opt/claude-seed
 USER agent

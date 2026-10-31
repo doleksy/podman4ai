@@ -79,7 +79,7 @@ baseline_setup() {
   [ "$(cat "$CLAUDE_CONFIG_DIR/CLAUDE.md")" = '# baseline notes' ]
 }
 
-@test "p4a-entrypoint never overwrites what the Sandbox has changed, but restores a deleted baseline file" {
+@test "p4a-entrypoint never overwrites a file the Claude config volume already has" {
   baseline_setup
   echo '{"theme":"light"}' > "$CLAUDE_CONFIG_DIR/settings.json"
   mkdir -p "$CLAUDE_CONFIG_DIR/projects/-workspace-a/memory"
@@ -89,6 +89,24 @@ baseline_setup() {
   [ "$(cat "$CLAUDE_CONFIG_DIR/settings.json")" = '{"theme":"light"}' ]
   [ "$(cat "$CLAUDE_CONFIG_DIR/projects/-workspace-a/memory/MEMORY.md")" = 'a memory' ]
   [ "$(cat "$CLAUDE_CONFIG_DIR/CLAUDE.md")" = '# baseline notes' ]
+}
+
+@test "p4a-entrypoint copies the baseline only on the first start: a file the Sandbox deletes stays deleted" {
+  baseline_setup
+  sh "$SCRIPTS/p4a-entrypoint" true
+  rm "$CLAUDE_CONFIG_DIR/CLAUDE.md"
+  sh "$SCRIPTS/p4a-entrypoint" true
+  [ ! -e "$CLAUDE_CONFIG_DIR/CLAUDE.md" ]
+}
+
+@test "deleting the baseline's marker makes p4a-entrypoint copy the missing baseline files again" {
+  baseline_setup
+  sh "$SCRIPTS/p4a-entrypoint" true
+  rm "$CLAUDE_CONFIG_DIR/CLAUDE.md" "$CLAUDE_CONFIG_DIR/.podman4ai-baseline"
+  echo '{"theme":"light"}' > "$CLAUDE_CONFIG_DIR/settings.json"
+  sh "$SCRIPTS/p4a-entrypoint" true
+  [ "$(cat "$CLAUDE_CONFIG_DIR/CLAUDE.md")" = '# baseline notes' ]
+  [ "$(cat "$CLAUDE_CONFIG_DIR/settings.json")" = '{"theme":"light"}' ]
 }
 
 @test "p4a-entrypoint still runs the command if the baseline can't be copied, and says so" {

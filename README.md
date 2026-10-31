@@ -114,7 +114,7 @@ p4a podman image inspect --format '{{json .Labels}}' localhost/podman4ai-base
 
 #### The Claude baseline
 
-Every Sandbox's Claude Code starts with the same setup, kept here in podman4ai rather than copied from Windows: [`images/base/claude-baseline/`](images/base/claude-baseline/). It has:
+Every Sandbox's Claude Code starts with the same setup, kept here in podman4ai rather than copied from the Host: [`images/base/claude-baseline/`](images/base/claude-baseline/). It has:
 
 - `settings.json`: the user settings, including permissions if any are added. It turns on the plugins (`enabledPlugins`) and says where each comes from (`extraKnownMarketplaces`, GitHub repositories only). It has no Windows paths or Windows hook commands.
 - Any other file placed in that folder lands at the same path under `~/.claude`. For example, a `CLAUDE.md` there becomes the user-level CLAUDE.md. There's none yet.
@@ -123,13 +123,13 @@ The plugins are context-mode and mattpocock-skills. `p4a image build` downloads 
 
 In a new Sandbox, the first interactive Claude session finds the plugins but starts without them: it says "Plugins changed. Run /reload-plugins to activate." Run `/reload-plugins` once. Every later session, and every `claude -p` run, has them from the start. To see them, use `/plugin` and its **Installed** tab. `claude plugin list` shows only plugins installed into `~/.claude`, so it says there are none.
 
-Each time a Sandbox starts, the baseline's files are copied into its Claude config volume, but never over a file that's already there. Whatever a Sandbox has changed since (settings, memory, the plugins' data) stays, through `p4a stop` and `p4a start` and when the Sandbox is recreated. Each project has its own Claude config volume, so memory never crosses between projects.
+On a Sandbox's first start, the baseline's files are copied into its Claude config volume, but never over a file that's already there. Later starts don't copy them again. Whatever a Sandbox changes after that (settings, memory, the plugins' data, even deleting a baseline file) stays, through `p4a stop` and `p4a start` and when the Sandbox is recreated. Each project has its own Claude config volume, so memory never crosses between projects.
 
 To change the baseline:
 
 1. Edit `images/base/claude-baseline/`. For another plugin, add its marketplace to `extraKnownMarketplaces` and turn it on in `enabledPlugins`. If its download needs a domain beyond GitHub, add it to `share/build-allowlist`, never to the default Allowlist.
 2. Rebuild the images with `p4a image build`.
-3. Recreate each Sandbox that should have it. There's no `p4a recreate` yet (#13); until then, only new projects and Sandboxes `p4a start` recreates after a token change get the new image. New Sandboxes get the whole new baseline. An existing Sandbox gets the rebuilt image's plugins, and any baseline file it doesn't have yet. It keeps its own copies of the rest. To reset one of those to the baseline, delete it in the Sandbox (for example `rm ~/.claude/settings.json`) and run `p4a stop`, then `p4a start`.
+3. Recreate each Sandbox that should have it. There's no `p4a recreate` yet (#13); until then, only new projects and Sandboxes `p4a start` recreates after a token change get the new image. New Sandboxes get the whole new baseline. An existing Sandbox gets the rebuilt image's plugins, but keeps its own copies of the baseline files. To give it the current baseline files it doesn't have, delete its marker in the Sandbox (`rm ~/.claude/.podman4ai-baseline`), then run `p4a stop` and `p4a start`. To reset a file to the baseline as well, delete that file too (for example `rm ~/.claude/settings.json`).
 
 The Base image build has no open internet. Its only way out is an Egress proxy that allows just the domains in [`share/build-allowlist`](share/build-allowlist) (ADR 0003, ADR 0005). Afterwards `p4a` lists the domains the proxy allowed and refused. The full log stays in the stopped proxy container until the next build: `p4a podman logs podman4ai-build-proxy`. If a build fails because a domain was refused, and that domain should be allowed, add it to `share/build-allowlist`.
 
