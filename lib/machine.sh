@@ -187,18 +187,16 @@ p4a_machine_stop() {
 
 p4a_machine_status() {
   _p4a_read_machines
-  case $P4A_SANDBOX_STATE in
-    missing)
-      echo "Sandbox machine $P4A_MACHINE: not created"
-      echo "  create it with: p4a machine create"
-      ;;
-    running)
-      _p4a_require_sandbox_podman_answers
-      echo "Sandbox machine $P4A_MACHINE: running"
-      ;;
-    *) echo "Sandbox machine $P4A_MACHINE: $P4A_SANDBOX_STATE" ;;
-  esac
-  [[ $P4A_SANDBOX_STATE == missing ]] || _p4a_report_dynamic_memory
+  if [[ $P4A_SANDBOX_STATE == missing ]]; then
+    echo "Sandbox machine $P4A_MACHINE: not created"
+    echo "  create it with: p4a machine create"
+    return
+  fi
+  echo "Sandbox machine $P4A_MACHINE: $P4A_SANDBOX_STATE"
+  # Before the Podman check, which exits: Hyper-V answers even when Podman
+  # in the machine doesn't.
+  _p4a_report_dynamic_memory
+  [[ $P4A_SANDBOX_STATE != running ]] || _p4a_require_sandbox_podman_answers
   # Podman lets a WSL machine start while the Sandbox machine runs (ADR 0004).
   if [[ $P4A_SANDBOX_STATE == running ]]; then
     local other

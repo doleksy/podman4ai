@@ -278,6 +278,16 @@ load helpers
   [[ "$output" == *"Set-VMMemory -VMName podman4ai -DynamicMemoryEnabled \$false"*"p4a machine start"* ]]
 }
 
+@test "status still warns about dynamic memory when Podman in the running Sandbox machine doesn't answer" {
+  machines "podman4ai hyperv running"
+  dynamic_memory True
+  podman_not_answering
+  run p4a machine status
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"warning:"*"dynamic memory is on"* ]]
+  [[ "$output" == *"doesn't answer"* ]]
+}
+
 @test "status prints no dynamic-memory warning when it's off" {
   machines "podman4ai hyperv running"
   dynamic_memory False
