@@ -122,7 +122,7 @@ The Base image build has no open internet. Its only way out is an Egress proxy t
 test/run.sh
 ```
 
-The tests need Bash and Node, never a real Podman. They run real `p4a` commands against a stand-in `podman` (`test/fake/`) that records each call, with all Host settings in a temporary folder. `test/run.sh` uses `bats` from PATH, or fetches a pinned version with `npx`. Pass `.bats` files to run just those, e.g. `test/run.sh test/machine.bats`.
+The tests need Bash and Node, never a real Podman or Hyper-V. They run real `p4a` commands against a stand-in `podman` and `powershell` (`test/fake/`) that record each call, with all Host settings in a temporary folder. `test/run.sh` uses `bats` from PATH, or fetches a pinned version with `npx`. Pass `.bats` files to run just those, e.g. `test/run.sh test/machine.bats`.
 
 The Egress proxy tests (`test/proxy.bats`) run the real proxy under Node on the Host, against a stand-in web server on localhost.
 

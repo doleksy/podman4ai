@@ -96,6 +96,14 @@ load helpers
   ! podman_calls | grep -q "machine rm"
 }
 
+@test "create doesn't touch Hyper-V memory when podman machine init fails" {
+  machines
+  fake_podman "machine init" --stderr "Error: init failed" --exit 125
+  run p4a machine create
+  [ "$status" -ne 0 ]
+  [ -z "$(powershell_calls)" ]
+}
+
 @test "create doesn't touch Hyper-V memory when the new machine is removed for sharing drives" {
   machines
   sandbox_machine_mounts "$WINDOWS_DRIVE_MOUNTS"
