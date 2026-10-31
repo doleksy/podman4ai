@@ -130,7 +130,7 @@ winget install --id koalaman.shellcheck
 
 The Egress proxy tests (`test/proxy.bats`) run the real proxy under Node on the Host, against a stand-in web server on localhost.
 
-CI runs `test/run.sh`, so the linting and all the unit tests, on Linux (whose runner has shellcheck installed) for every pull request and every push to `main` ([`.github/workflows/unit-tests.yml`](.github/workflows/unit-tests.yml)). CI doesn't run the Host-only checks below; they need the real Sandbox machine, so run them by hand.
+CI runs `test/run.sh`, so the linting and all the unit tests, on Linux for every pull request and every push to `main` ([`.github/workflows/unit-tests.yml`](.github/workflows/unit-tests.yml)). CI pins shellcheck 0.11.0; other versions can report different things, so match it locally (`shellcheck --version`). CI doesn't run the Host-only checks below; they need the real Sandbox machine, so run them by hand.
 
 ### Host-only checks
 
