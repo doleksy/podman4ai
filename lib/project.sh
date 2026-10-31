@@ -185,6 +185,7 @@ _p4a_git_identity() {
   local -n identity_args=$1
   local key value
   for key in name email; do
+    # shellcheck disable=SC2015 # dying when either test fails is the point
     value="$(git config --global --get "user.$key")" && [[ -n $value ]] \
       || p4a_die "the Host's git config has no user.$key, which commits in the Sandbox need" \
         "set it with 'git config --global user.$key <your $key>', then try again"
