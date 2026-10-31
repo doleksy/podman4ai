@@ -1,0 +1,63 @@
+#!/bin/sh
+# p4a-install-plugins SETTINGS SEED
+# Install the Claude baseline's plugins into SEED, a plugin seed folder
+# (Claude Code's CLAUDE_CODE_PLUGIN_SEED_DIR). Used only while building the
+# Base image. SETTINGS is the baseline's settings.json: each marketplace in
+# its extraKnownMarketplaces is added, then each plugin its enabledPlugins
+# turns on is installed. Only GitHub marketplaces are supported.
+#
+# Claude Code also writes its own settings when it installs; those go to a
+# throwaway config folder, so the baseline stays the only settings a
+# Sandbox starts with.
+set -eu
+settings=$1 seed=$2
+
+# One "marketplace OWNER/REPO" or "plugin NAME@MARKETPLACE" line each.
+# shellcheck disable=SC2016 # the ${...} are JavaScript's, not the shell's
+steps="$(node -e '
+const s = JSON.parse(require("fs").readFileSync(0, "utf8"));
+for (const [name, m] of Object.entries(s.extraKnownMarketplaces ?? {})) {
+  if (m?.source?.source !== "github" || !m.source.repo) {
+    console.error(`p4a-install-plugins: the marketplace ${name} must have a GitHub source ({"source": "github", "repo": "owner/repo"})`);
+    process.exit(1);
+  }
+  console.log(`marketplace ${m.source.repo}`);
+}
+for (const [id, on] of Object.entries(s.enabledPlugins ?? {})) {
+  if (on === true) console.log(`plugin ${id}`);
+}
+' < "$settings")"
+
+config="$(mktemp -d)"
+trap 'rm -rf "$config"' EXIT
+# Clone over HTTPS (there's no SSH key, and the build reaches out only
+# through its Egress proxy), and make no calls but the downloads.
+export CLAUDE_CODE_PLUGIN_CACHE_DIR="$seed" CLAUDE_CONFIG_DIR="$config" \
+  CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+
+while read -r kind arg; do
+  case $kind in
+    marketplace) claude plugin marketplace add "$arg" ;;
+    plugin) claude plugin install "$arg" ;;
+  esac
+done <<EOF
+$steps
+EOF
+
+# Claude Code installs a plugin pinned to a git commit (as
+# mattpocock-skills is) under its version, but looks for it in a seed under
+# the commit's first 12 hex digits, and without this doesn't load it. So
+# each installed plugin also gets that name, as a link to its folder.
+[ -e "$seed/installed_plugins.json" ] || exit 0
+cd "$seed"
+node -e '
+const fs = require("fs"), path = require("path");
+const installed = JSON.parse(fs.readFileSync("installed_plugins.json", "utf8")).plugins ?? {};
+for (const entry of Object.values(installed).flat()) {
+  if (!/^[0-9a-f]{12,}$/.test(entry.gitCommitSha ?? "")) continue;
+  // installPath is absolute: SEED/cache/MARKETPLACE/PLUGIN/VERSION.
+  const dir = entry.installPath.slice(entry.installPath.lastIndexOf("/cache/") + 1);
+  const alias = path.join(path.dirname(dir), entry.gitCommitSha.slice(0, 12));
+  if (!fs.existsSync(alias)) fs.symlinkSync(path.basename(dir), alias);
+}
+'

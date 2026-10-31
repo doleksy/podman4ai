@@ -23,7 +23,7 @@ The set of network destinations a Sandbox may reach; everything else is blocked.
 _Avoid_: whitelist, firewall rules
 
 **Build Allowlist**:
-The Allowlist for building the Base image (Debian mirrors, Claude Code's installer, and where the Base image's other tools are released), kept in podman4ai's own configuration and separate from any Sandbox's Allowlist.
+The Allowlist for building the Base image (Debian mirrors, Claude Code's installer, where the Base image's other tools are released, and the Claude baseline's plugins and their dependencies), kept in podman4ai's own configuration and separate from any Sandbox's Allowlist.
 _Avoid_: build whitelist
 
 **Launcher**:
@@ -51,6 +51,10 @@ _Avoid_: workspace, mount, checkout
 **Claude config volume**:
 The persistent storage holding one project's Agent settings, hooks and memory, attached only to that project's Sandbox, so an Agent can't plant anything that affects another project.
 _Avoid_: claude dir, home volume
+
+**Claude baseline**:
+The Claude Code setup every Sandbox starts with: user settings, permissions, the plugin list and any user-level CLAUDE.md. It's versioned in podman4ai, and its plugins are built into the Base image. It's copied into a Claude config volume without overwriting anything already there.
+_Avoid_: dotfiles, default config, Windows settings
 
 ### Work
 
