@@ -84,6 +84,7 @@ sandbox_machine_mounts() {
 }
 
 # A Mounts list sharing Windows drives, as Podman writes it by default.
+# shellcheck disable=SC2034 # read by test/machine.bats
 WINDOWS_DRIVE_MOUNTS='[{"OriginalInput":"C:\\Users\\me:/Users/me","ReadOnly":false,"Source":"C:\\Users\\me","Tag":"vol0","Target":"/Users/me","Type":"9p"},{"OriginalInput":"C:\\:/mnt/c","ReadOnly":false,"Source":"C:\\","Tag":"vol1","Target":"/mnt/c","Type":"9p"}]'
 
 # fake_podman PREFIX [--stdout TEXT] [--stderr TEXT] [--exit N] [--remove FILE]

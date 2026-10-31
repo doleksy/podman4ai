@@ -1,2 +1,8 @@
-# Scripts that run in Linux containers need LF line endings.
+# Scripts that run in Linux containers, or under Bash on the Host, need LF
+# line endings.
+*.sh text eol=lf
+*.bash text eol=lf
+*.bats text eol=lf
+bin/* text eol=lf
+test/fake/podman text eol=lf
 images/base/p4a-* text eol=lf

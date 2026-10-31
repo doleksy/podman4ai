@@ -73,6 +73,7 @@ for i in 0 1; do
     fail "$self's Sandbox doesn't have its own Repo token"
   fi
   # Search everywhere a secret or a copy of one could be.
+  # shellcheck disable=SC2016 # $1 is expanded by sh in the Sandbox
   if p4a shell "$self" -- sh -c 'grep -rlsF -- "$1" /run /etc /home /workspace /tmp /var' _ "${token[$other]}" | grep -q .; then
     fail "$self's Sandbox can read $other's Repo token"
   else

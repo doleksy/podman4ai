@@ -124,9 +124,15 @@ test/run.sh
 
 The tests need Bash and Node, never a real Podman or Hyper-V. They run real `p4a` commands against a stand-in `podman` and `powershell` (`test/fake/`) that record each call, with all Host settings in a temporary folder. `test/run.sh` uses `bats` from PATH, or fetches a pinned version with `npx`. Pass `.bats` files to run just those, e.g. `test/run.sh test/machine.bats`.
 
+Before the tests, `test/run.sh` lints the shell code with `shellcheck -x` (the file patterns are in `test/run.sh`; `.bats` files aren't linted), and stops without running the tests if it finds anything. It lints when you pass `.bats` files too. If shellcheck isn't installed, it says it skipped linting and runs the tests anyway. To install it on Windows:
+
+```bash
+winget install --id koalaman.shellcheck
+```
+
 The Egress proxy tests (`test/proxy.bats`) run the real proxy under Node on the Host, against a stand-in web server on localhost.
 
-CI runs all the unit tests (`test/run.sh`) on Linux for every pull request and every push to `main` ([`.github/workflows/unit-tests.yml`](.github/workflows/unit-tests.yml)). CI doesn't run the Host-only checks below; they need the real Sandbox machine, so run them by hand.
+CI runs `test/run.sh`, so the linting and all the unit tests, on Linux for every pull request and every push to `main` ([`.github/workflows/unit-tests.yml`](.github/workflows/unit-tests.yml)). CI pins shellcheck 0.11.0; other versions can report different things, so match it locally (`shellcheck --version`). CI doesn't run the Host-only checks below; they need the real Sandbox machine, so run them by hand.
 
 ### Host-only checks
 
