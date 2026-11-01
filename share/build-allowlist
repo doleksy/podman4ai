@@ -18,7 +18,8 @@ nodejs.org
 cli.github.com
 
 # Latest-release lookups and release downloads for uv, ruff, ty, Bun and
-# git-delta (GitHub redirects each download to its asset host), and the
+# git-delta, uv's download of Python (python-build-standalone) (GitHub
+# redirects each download to its asset host), and the
 # Claude baseline's plugins and their marketplaces (git clones)
 github.com
 release-assets.githubusercontent.com
