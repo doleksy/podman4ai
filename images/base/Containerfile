@@ -18,7 +18,7 @@ RUN apt-get update \
  && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl git less nano jq ripgrep fzf tmux procps unzip \
-      python3 python3-pip libatomic1 \
+      libatomic1 \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 1000 --shell /bin/bash agent \
  && mkdir /workspace /home/agent/.claude \
@@ -71,6 +71,23 @@ RUN arch="$(uname -m)" \
       && rm "$file" \
       || exit 1; \
     done
+
+# Python: the newest stable CPython (Debian's is 3.11). python.org has no
+# Linux builds, so uv installs python-build-standalone's, the newest it
+# knows of, which it checks against the checksum it ships with. From
+# GitHub, not uv's default mirror (releases.astral.sh), which isn't on the
+# build Allowlist. It goes in a folder root owns, so the Agent can't change
+# it, and python3, python, pip and pip3 on PATH point at it. uv, ruff and
+# ty find it there, so they never download a Python.
+RUN export UV_PYTHON_INSTALL_DIR=/usr/local/lib/python UV_NO_CACHE=1 \
+ && uv python install --no-bin \
+      --mirror https://github.com/astral-sh/python-build-standalone/releases/download \
+ && bin="$(dirname "$(uv python find --managed-python --no-config)")" \
+ && ln -s "$bin/python3" /usr/local/bin/python3 \
+ && ln -s "$bin/python3" /usr/local/bin/python \
+ && ln -s "$bin/pip3" /usr/local/bin/pip3 \
+ && ln -s "$bin/pip3" /usr/local/bin/pip \
+ && python3 --version
 
 # Bun, from its latest GitHub release, checked against the release's
 # checksums. Like Bun's own installer, the baseline build on CPUs without
@@ -131,8 +148,9 @@ WORKDIR /home/agent
 # so no install needs root: npm's global packages (npm install -g),
 # uv's tools (uv tool install), Bun's global packages (bun add -g) and
 # pip's user packages (pip install --user). Those last land in
-# ~/.local/bin and ~/.local/lib; Debian refuses them unless told otherwise,
-# which is safe here because the Agent can't write the system's Python.
+# ~/.local/bin and ~/.local/lib; pip refuses them unless told otherwise,
+# because uv marks the Python it installs as externally managed (PEP 668),
+# which is safe to override here because the Agent can't write that Python.
 # The home lives in the Sandbox container, so all of these survive a
 # Sandbox restart.
 #
