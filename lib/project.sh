@@ -344,6 +344,12 @@ p4a_start() {
   [[ $# -eq 1 ]] || p4a_usage_error "start needs one project name" "p4a --help"
   _p4a_require_project "$1"
   p4a_require_running_sandbox_machine
+  _p4a_start_existing_project "$1"
+}
+
+# Start PROJECT as p4a start does: with the current tokens, its Egress
+# proxy first, then the self-check.
+_p4a_start_existing_project() {
   p4a_require_agent_token
   _p4a_refresh_proxy "$1"
   _p4a_refresh_sandbox_tokens "$1"
@@ -431,24 +437,90 @@ p4a_shell() {
   fi
   _p4a_require_project "$project"
   p4a_require_running_sandbox_machine
-
-  local sandbox running source_dir
-  sandbox="$(_p4a_sandbox_name "$project")"
-  running="$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$sandbox")" \
-    || p4a_die "couldn't find the Sandbox $sandbox for $project" \
-      "check what exists with 'p4a podman ps -a'"
+  local running
+  running="$(_p4a_sandbox_running "$project")"
   [[ $running == true ]] \
     || p4a_die "the Sandbox for $project isn't running" "start it with 'p4a start $project'"
-  source_dir="$(_p4a_project_setting "$project" source)" \
-    || p4a_die "the settings for $project don't say where its source is" \
-      "add a line 'source=/workspace/<repo>' to $(_p4a_projects_dir)/$project.conf"
+  (( $# )) || set -- bash -l
+  _p4a_exec_in_sandbox "$project" "$@"
+}
 
+# Print whether PROJECT's Sandbox is running: true or false.
+_p4a_sandbox_running() {
+  local sandbox
+  sandbox="$(_p4a_sandbox_name "$1")"
+  p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$sandbox" \
+    || p4a_die "couldn't find the Sandbox $sandbox for $1" \
+      "check what exists with 'p4a podman ps -a'"
+}
+
+# _p4a_exec_in_sandbox PROJECT COMMAND...
+# Run COMMAND in PROJECT's running Sandbox, in its source folder, on this
+# terminal if there is one, and return its exit code. p4a-session (in the
+# Base image) hands the Agent token to Claude Code.
+_p4a_exec_in_sandbox() {
+  local project=$1 source_dir
+  shift
+  source_dir="$(_p4a_source_dir "$project")"
   local tty=()
   [[ -t 0 && -t 1 ]] && tty=(-t)
-  (( $# )) || set -- bash -l
   local status=0
-  # p4a-session (in the Base image) hands the Agent token to Claude Code.
-  p4a_sandbox_podman exec -i "${tty[@]}" -w "$source_dir" "$sandbox" p4a-session "$@" \
-    || status=$?
+  p4a_sandbox_podman exec -i "${tty[@]}" -w "$source_dir" "$(_p4a_sandbox_name "$project")" \
+    p4a-session "$@" || status=$?
   return "$status"
+}
+
+# Print where PROJECT's source is in its Sandbox.
+_p4a_source_dir() {
+  _p4a_project_setting "$1" source \
+    || p4a_die "the settings for $1 don't say where its source is" \
+      "add a line 'source=/workspace/<repo>' to $(_p4a_projects_dir)/$1.conf"
+}
+
+# The tmux session p4a claude runs Claude Code in, one per Sandbox.
+P4A_CLAUDE_SESSION=claude
+# The terminal type tmux is told it's drawing on. podman exec would say
+# plain xterm, so tmux would use 8 colours; the terminals p4a runs in
+# (mintty, VS Code, Windows Terminal) all have 256.
+P4A_CLAUDE_TERM=xterm-256color
+
+# p4a claude PROJECT [CLAUDE_ARGUMENT...]
+# Start PROJECT if it's stopped, then attach to its Claude session: a tmux
+# session running Claude Code in the source folder, which outlives the
+# terminal. If there's none, start one, passing the arguments to Claude Code.
+p4a_claude() {
+  (( $# )) || p4a_usage_error "claude needs a project name" "p4a --help"
+  local project=$1
+  shift
+  _p4a_require_project "$project"
+  p4a_require_running_sandbox_machine
+  local running
+  running="$(_p4a_sandbox_running "$project")"
+  if [[ $running != true ]]; then
+    p4a_note "starting $project"
+    _p4a_start_existing_project "$project"
+  fi
+
+  # tmux reports "no server" or "can't find session" when there's none;
+  # anything else it or podman says is shown only if the check fails.
+  local error status=0
+  error="$(p4a_sandbox_podman exec "$(_p4a_sandbox_name "$project")" \
+    tmux has-session -t "=$P4A_CLAUDE_SESSION" 2>&1 >/dev/null)" || status=$?
+  local tmux=(env "TERM=$P4A_CLAUDE_TERM" tmux)
+  case $status in
+    0)
+      (( $# == 0 )) \
+        || p4a_note "attaching to the Claude session already running in $project, which ignores $*. To use them, quit Claude Code there, then run this again."
+      _p4a_exec_in_sandbox "$project" "${tmux[@]}" attach-session -t "=$P4A_CLAUDE_SESSION"
+      return
+      ;;
+    1) ;;
+    *) p4a_die "couldn't check for a Claude session in $project (podman exited with $status: ${error:-no error message})" \
+         "check the Sandbox with 'p4a shell $project', then run 'p4a claude $project' again" ;;
+  esac
+
+  local source_dir
+  source_dir="$(_p4a_source_dir "$project")"
+  # -A attaches instead if a session was started since the check.
+  _p4a_exec_in_sandbox "$project" "${tmux[@]}" new-session -A -s "$P4A_CLAUDE_SESSION" -c "$source_dir" claude "$@"
 }
