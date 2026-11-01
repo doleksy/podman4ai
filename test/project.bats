@@ -262,6 +262,11 @@ hello_world_running() {
   [ -z "$(sandbox_calls | grep '^exec ')" ]
 }
 
+# The arguments of the call that ran tmux on the terminal, as a JSON array.
+claude_session_call() {
+  _calls 'c.args.includes("p4a-session") ? JSON.stringify(c.args) : null'
+}
+
 # Whether hello-world's Sandbox has a Claude session: yes or no.
 claude_session() {
   fake_podman "--connection podman4ai exec podman4ai-hello-world tmux has-session -t =claude" \
@@ -273,7 +278,7 @@ claude_session() {
   claude_session no
   run p4a claude hello-world --dangerously-skip-permissions --model "opus 5"
   [ "$status" -eq 0 ]
-  [ "$(_calls 'c.args.includes("p4a-session") ? JSON.stringify(c.args) : null')" = '["--connection","podman4ai","exec","-i","-w","/workspace/hello-world","podman4ai-hello-world","p4a-session","tmux","new-session","-A","-s","claude","-c","/workspace/hello-world","claude","--dangerously-skip-permissions","--model","opus 5"]' ]
+  [ "$(claude_session_call)" = '["--connection","podman4ai","exec","-i","-w","/workspace/hello-world","podman4ai-hello-world","p4a-session","env","TERM=xterm-256color","tmux","new-session","-A","-s","claude","-c","/workspace/hello-world","claude","--dangerously-skip-permissions","--model","opus 5"]' ]
 }
 
 @test "claude reattaches to a running Claude session rather than starting a second one, and says the extra arguments weren't used" {
@@ -282,7 +287,7 @@ claude_session() {
   run p4a claude hello-world --dangerously-skip-permissions
   [ "$status" -eq 0 ]
   [[ "$output" == *"--dangerously-skip-permissions"* ]]
-  [ "$(_calls 'c.args.includes("p4a-session") ? JSON.stringify(c.args) : null')" = '["--connection","podman4ai","exec","-i","-w","/workspace/hello-world","podman4ai-hello-world","p4a-session","tmux","attach-session","-t","=claude"]' ]
+  [ "$(claude_session_call)" = '["--connection","podman4ai","exec","-i","-w","/workspace/hello-world","podman4ai-hello-world","p4a-session","env","TERM=xterm-256color","tmux","attach-session","-t","=claude"]' ]
 }
 
 @test "claude starts a stopped Sandbox first, with its Egress proxy and self-check" {
@@ -303,10 +308,12 @@ exec -i -w" ]
 
 @test "claude fails clearly when it can't check for a Claude session, and starts none" {
   hello_world_running
-  fake_podman "--connection podman4ai exec podman4ai-hello-world tmux has-session" --exit 125
+  fake_podman "--connection podman4ai exec podman4ai-hello-world tmux has-session" --exit 125 \
+    --stderr "Error: no container with name or ID podman4ai-hello-world found"
   run p4a claude hello-world
   [ "$status" -eq 1 ]
   [[ "$output" == *"couldn't check for a Claude session in hello-world"* ]]
+  [[ "$output" == *"no container with name or ID"* ]]
   [ -z "$(sandbox_calls | grep 'p4a-session')" ]
 }
 

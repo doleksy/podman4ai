@@ -62,6 +62,10 @@ _Avoid_: dotfiles, default config, Windows settings
 An AI coding tool (initially Claude Code) running inside a Sandbox.
 _Avoid_: bot, assistant, AI
 
+**Claude session**:
+The one tmux session in a Sandbox running Claude Code in the project's source folder, which `p4a claude` starts or reattaches to. It keeps running when the terminal closes.
+_Avoid_: Claude Code session, tmux window, terminal
+
 **Agent token**:
 The single long-lived credential that lets an Agent use the user's Claude subscription. The only secret shared by all Sandboxes.
 _Avoid_: API key, login, auth

@@ -45,7 +45,7 @@ p4a shell <project>  open a shell in a project's Sandbox, in its source folder
 p4a shell <project> -- <command>...
                      run one command there and return its exit code
 p4a claude <project> [<claude argument>...]
-                     attach to the project's Claude Code session, starting the project
+                     attach to the project's Claude session, starting the project
                      and the session if needed (see Claude sessions)
 p4a allow <project> <domain>
                      let a project's Sandbox reach a domain (or *.domain), without a restart

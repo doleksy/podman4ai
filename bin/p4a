@@ -66,9 +66,9 @@ Commands:
                           command there and return its exit code
   p4a claude <project> [<claude argument>...]
                           start a project if it's stopped, then attach to its
-                          Claude Code session, which keeps running when the
-                          terminal closes. If there's none, start one, passing
-                          the arguments to Claude Code
+                          Claude session (Claude Code in tmux), which keeps
+                          running when the terminal closes. If there's none,
+                          start one, passing the arguments to Claude Code
   p4a allow <project> <domain>
                           let a project's Sandbox reach a domain (or
                           *.domain for its subdomains), without a restart

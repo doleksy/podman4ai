@@ -442,7 +442,7 @@ p4a_shell() {
   [[ $running == true ]] \
     || p4a_die "the Sandbox for $project isn't running" "start it with 'p4a start $project'"
   (( $# )) || set -- bash -l
-  _p4a_session "$project" "$@"
+  _p4a_exec_in_sandbox "$project" "$@"
 }
 
 # Print whether PROJECT's Sandbox is running: true or false.
@@ -454,11 +454,11 @@ _p4a_sandbox_running() {
       "check what exists with 'p4a podman ps -a'"
 }
 
-# _p4a_session PROJECT COMMAND...
+# _p4a_exec_in_sandbox PROJECT COMMAND...
 # Run COMMAND in PROJECT's running Sandbox, in its source folder, on this
 # terminal if there is one, and return its exit code. p4a-session (in the
 # Base image) hands the Agent token to Claude Code.
-_p4a_session() {
+_p4a_exec_in_sandbox() {
   local project=$1 source_dir
   shift
   source_dir="$(_p4a_source_dir "$project")"
@@ -479,6 +479,10 @@ _p4a_source_dir() {
 
 # The tmux session p4a claude runs Claude Code in, one per Sandbox.
 P4A_CLAUDE_SESSION=claude
+# The terminal type tmux is told it's drawing on. podman exec would say
+# plain xterm, so tmux would use 8 colours; the terminals p4a runs in
+# (mintty, VS Code, Windows Terminal) all have 256.
+P4A_CLAUDE_TERM=xterm-256color
 
 # p4a claude PROJECT [CLAUDE_ARGUMENT...]
 # Start PROJECT if it's stopped, then attach to its Claude session: a tmux
@@ -497,23 +501,26 @@ p4a_claude() {
     _p4a_start_existing_project "$project"
   fi
 
-  local sandbox status=0
-  sandbox="$(_p4a_sandbox_name "$project")"
-  p4a_sandbox_podman exec "$sandbox" tmux has-session -t "=$P4A_CLAUDE_SESSION" 2>/dev/null || status=$?
+  # tmux reports "no server" or "can't find session" when there's none;
+  # anything else it or podman says is shown only if the check fails.
+  local error status=0
+  error="$(p4a_sandbox_podman exec "$(_p4a_sandbox_name "$project")" \
+    tmux has-session -t "=$P4A_CLAUDE_SESSION" 2>&1 >/dev/null)" || status=$?
+  local tmux=(env "TERM=$P4A_CLAUDE_TERM" tmux)
   case $status in
     0)
       (( $# == 0 )) \
         || p4a_note "attaching to the Claude session already running in $project, which ignores $*. To use them, quit Claude Code there, then run this again."
-      _p4a_session "$project" tmux attach-session -t "=$P4A_CLAUDE_SESSION"
+      _p4a_exec_in_sandbox "$project" "${tmux[@]}" attach-session -t "=$P4A_CLAUDE_SESSION"
       return
       ;;
     1) ;;
-    *) p4a_die "couldn't check for a Claude session in $project (podman exited with $status)" \
+    *) p4a_die "couldn't check for a Claude session in $project (podman exited with $status: ${error:-no error message})" \
          "check the Sandbox with 'p4a shell $project', then run 'p4a claude $project' again" ;;
   esac
 
   local source_dir
   source_dir="$(_p4a_source_dir "$project")"
   # -A attaches instead if a session was started since the check.
-  _p4a_session "$project" tmux new-session -A -s "$P4A_CLAUDE_SESSION" -c "$source_dir" claude "$@"
+  _p4a_exec_in_sandbox "$project" "${tmux[@]}" new-session -A -s "$P4A_CLAUDE_SESSION" -c "$source_dir" claude "$@"
 }
