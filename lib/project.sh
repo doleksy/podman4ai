@@ -6,7 +6,8 @@
 # settings live in the Host user config folder, outside every repo
 # (ADR 0002).
 
-# Default limits for every Sandbox.
+# Default limits for every Sandbox. A project's Host settings can change
+# them with memory=, cpus= and pids= lines (_p4a_sandbox_limits).
 P4A_SANDBOX_MEMORY=4g
 P4A_SANDBOX_CPUS=4
 P4A_SANDBOX_PIDS=4096
@@ -157,9 +158,7 @@ p4a_new() {
   p4a_sandbox_podman volume create "$project_volume" >/dev/null
   p4a_sandbox_podman volume create "$claude_volume" >/dev/null
 
-  p4a_sandbox_podman network create --internal --disable-dns \
-    --subnet "$subnet" "$network" >/dev/null
-
+  _p4a_create_network "$project"
   _p4a_create_proxy "$project"
   _p4a_create_sandbox "$project"
   _p4a_start_project "$project"
@@ -203,6 +202,17 @@ _p4a_sandbox_secrets() {
   if p4a_secret_exists "$repo_token"; then
     echo "$repo_token $P4A_REPO_TOKEN_FILE"
   fi
+}
+
+# Create PROJECT's network, on its own subnet, with no route out and no
+# DNS. Used by p4a new, and by p4a recreate after p4a rm removed it.
+_p4a_create_network() {
+  local subnet
+  subnet="$(_p4a_project_setting "$1" subnet)" \
+    || p4a_die "the settings for $1 don't say which network address range it uses" \
+      "check $(_p4a_projects_dir)/$1.conf has a line 'subnet=10.89.N.0/24'"
+  p4a_sandbox_podman network create --internal --disable-dns \
+    --subnet "$subnet" "$(_p4a_network_name "$1")" >/dev/null
 }
 
 # Print the address of PROJECT's Egress proxy on the project's network.
@@ -270,15 +280,46 @@ _p4a_create_sandbox() {
     secrets+=(--secret "$name,type=mount,target=$file,uid=$P4A_SANDBOX_UID,gid=$P4A_SANDBOX_UID,mode=0400")
   done <<< "$list"
 
+  local limits=()
+  _p4a_sandbox_limits "$project" limits
+
   p4a_sandbox_podman create --name "$(_p4a_sandbox_name "$project")" \
     "${P4A_SANDBOX_HARDENING[@]}" \
-    --memory="$P4A_SANDBOX_MEMORY" --cpus="$P4A_SANDBOX_CPUS" --pids-limit="$P4A_SANDBOX_PIDS" \
+    "${limits[@]}" \
     --network "$(_p4a_network_name "$project")" --dns=none --add-host "$P4A_PROXY_HOST:$proxy_ip" \
     "${proxy_env[@]}" "${identity[@]}" --env "P4A_PROJECT=$project" \
     --volume "$(_p4a_project_volume_name "$project"):$P4A_PROJECT_VOLUME_PATH" \
     --volume "$(_p4a_claude_volume_name "$project"):$P4A_CLAUDE_CONFIG_PATH" \
     "${secrets[@]}" \
     --init "$P4A_BASE_IMAGE" sleep infinity >/dev/null
+}
+
+# _p4a_sandbox_limits PROJECT ARRAY
+# Add to ARRAY the podman options for PROJECT's Sandbox's limits: the
+# defaults, or the project's own memory=, cpus= and pids= settings. Exit,
+# naming the setting, if one isn't a value p4a can use.
+_p4a_sandbox_limits() {
+  local project=$1 key option default pattern example value
+  local -n limit_args=$2
+  while read -r key option default pattern example; do
+    value="$(_p4a_project_setting "$project" "$key")" || value=$default
+    [[ $value =~ $pattern ]] \
+      || p4a_die "the setting $key=$value for $project isn't a limit p4a can use" \
+        "change it in $(_p4a_projects_dir)/$project.conf to a value like $key=$example, or remove the line to use $default"
+    limit_args+=("--$option=$value")
+  done <<EOF
+memory memory $P4A_SANDBOX_MEMORY ^[1-9][0-9]*[kmg]?$ 8g
+cpus cpus $P4A_SANDBOX_CPUS ^[0-9]+(\.[0-9]+)?$ 6
+pids pids-limit $P4A_SANDBOX_PIDS ^[1-9][0-9]*$ 8192
+EOF
+}
+
+# Exit, naming the setting, if one of PROJECT's limits isn't a value p4a
+# can use. Called before a Sandbox is removed to be recreated.
+_p4a_check_sandbox_limits() {
+  # shellcheck disable=SC2034 # only checked here; _p4a_create_sandbox uses them
+  local limits=()
+  _p4a_sandbox_limits "$1" limits
 }
 
 # Recreate PROJECT's Sandbox if it doesn't mount the current tokens.
@@ -302,6 +343,7 @@ _p4a_refresh_sandbox_tokens() {
     p4a_note "the Sandbox for $project is running with old tokens. To give it the current ones, run 'p4a stop $project', then 'p4a start $project'"
     return 0
   fi
+  _p4a_check_sandbox_limits "$project"
   p4a_note "Recreating the Sandbox for $project to give it the current tokens. Its source and Claude config are kept; anything else changed inside it is lost."
   p4a_sandbox_podman rm "$sandbox" >/dev/null
   _p4a_create_sandbox "$project" \

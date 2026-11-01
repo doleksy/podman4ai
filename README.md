@@ -47,6 +47,15 @@ p4a shell <project> -- <command>...
 p4a claude <project> [<claude argument>...]
                      attach to the project's Claude session, starting the project
                      and the session if needed (see Claude sessions)
+p4a recreate <project>
+                     replace a project's Sandbox and Egress proxy from the current images
+                     and limits, keeping its volumes and whether it's running
+p4a recreate --all   the same for every project
+p4a rm <project>     remove a project's Sandbox, Egress proxy and network; then, only if
+                     you type the project's name, its volumes and Host settings too
+p4a list             every project: running or stopped, its image and the image's age
+p4a status [<project>]
+                     one project's state, image, build date, age and limits (none: as list)
 p4a allow <project> <domain>
                      let a project's Sandbox reach a domain (or *.domain), without a restart
 p4a disallow <project> <domain>
@@ -77,13 +86,35 @@ Each Sandbox mounts the Agent token at `/run/secrets/agent-token` and only its o
 - a Claude config volume, `podman4ai-hello-world-claude`, mounted at `/home/agent/.claude`
 - an internal network, `podman4ai-hello-world`, with no route out and no DNS, and its own subnet
 - an Egress proxy, `podman4ai-hello-world-proxy`, given the project's Allowlist (see [Allowlists](#allowlists))
-- the Sandbox, `podman4ai-hello-world`, on that network only. It runs as the non-root user `agent` with all capabilities dropped, no-new-privileges, Podman's default seccomp and SELinux, no Podman socket and no Host paths, and is limited to 4 GB memory, 4 CPUs and 4096 processes.
+- the Sandbox, `podman4ai-hello-world`, on that network only. It runs as the non-root user `agent` with all capabilities dropped, no-new-privileges, Podman's default seccomp and SELinux, no Podman socket and no Host paths, and is limited by default to 4 GB memory, 4 CPUs and 4096 processes (see [Limits](#limits)).
 
 Every start runs a self-check from inside the Sandbox: `github.com` must be reachable through the Egress proxy and `example.com` must not be. If either check fails, `p4a` stops the Sandbox and its proxy and says why.
 
 If `p4a new` fails partway, it removes what it created, so you can run it again. It never reuses or removes a volume, network or container that already had the project's name.
 
 A project's Host settings are in `%APPDATA%\podman4ai\projects\` (or `$P4A_CONFIG_DIR/projects`): `<project>.conf`, and its Allowlist additions in `<project>.allowlist`. They're outside every repo and every Sandbox, so no Agent can change them.
+
+### Recreating, removing and checking projects
+
+A Sandbox and its Egress proxy are disposable: what's worth keeping is in the project's volumes and Host settings.
+
+- `p4a recreate hello-world` replaces the Sandbox and its Egress proxy with new ones, from the current images and the project's current [limits](#limits). The Project volume and Claude config volume are kept, so uncommitted work and Claude's memory survive; anything else changed inside the container (tools `agent` installed, say) is lost, as is the proxy's log. A running project is stopped first and started again afterwards, with the self-check; a stopped one stays stopped. `p4a recreate --all` does this for every project, and goes on past one that fails, naming it at the end. After `p4a image build`, run `p4a recreate --all` to move every Sandbox to the new images.
+- `p4a rm hello-world` stops the project and removes its Sandbox, Egress proxy and network. Then it lists the volumes and what deleting them loses (the source, including uncommitted and unpushed work; Claude's settings, hooks and memory), and deletes them and the project's Host settings only if you type the project's name. Anything else, or no answer, keeps them: `p4a recreate hello-world` brings the project back with them, and `p4a rm hello-world` again deletes them. The project's Repo token, if any, is kept for a later `p4a new` of the same repo.
+- `p4a list` shows every project, running, stopped or removed (by `p4a rm`, with its volumes kept), with its Sandbox's image and how old that image is. `p4a status hello-world` shows the same for one project, with the image's build date and the project's limits.
+
+Both nudge you when a Sandbox's image is more than **14 days** old (`P4A_IMAGE_MAX_AGE_DAYS` in `lib/lifecycle.sh`), or its age is unknown: rebuild the images with `p4a image build` for the latest OS patches and Claude Code, then `p4a recreate`. The age is the build date `p4a image build` labels the Base image with. They also say when a newer Base image is already built than the one a Sandbox runs, so it only needs `p4a recreate`.
+
+### Limits
+
+Every Sandbox is limited by default to 4 GB memory, 4 CPUs and 4096 processes. To change a project's limits, add any of these lines to its `<project>.conf` in its Host settings:
+
+```
+memory=8g
+cpus=6
+pids=8192
+```
+
+`memory` takes a number with an optional `k`, `m` or `g`; `cpus` may be fractional. They take effect at the next `p4a recreate hello-world`, and other projects keep the defaults. The Sandbox machine has 12 GB and 6 CPUs in all, shared by every running Sandbox. A value `p4a` can't use stops `p4a recreate` (and `p4a start` when it recreates a Sandbox) before anything is removed, naming the setting.
 
 ### Claude sessions
 
@@ -118,7 +149,7 @@ Egress proxies created before Allowlist additions existed can't apply them. Rebu
 - `localhost/podman4ai-proxy`, the Egress proxy (`images/proxy/`). Its own build has no network.
 - `localhost/podman4ai-base`, the Base image (`images/base/`): Debian bookworm with Claude Code, Node (the latest LTS), Python with uv, ruff and ty, Bun, gh, git with git-delta, ripgrep, jq, fzf, less, nano and tmux (mouse on, the project's name in the status bar), a non-root user `agent`, and no sudo, zsh or firewall tooling. It's rebuilt from scratch each time, so it gets the latest OS patches and the latest release of each tool. Claude Code's self-updater, telemetry and error reporting are off; it updates when the image is rebuilt.
 
-`agent` installs its own tools without root, into its home: `npm install -g` (into `~/.npm-global`), `uv tool install`, `bun add -g` and `pip install --user`. They're on PATH, and survive `p4a stop` and `p4a start`. They're lost when the Sandbox is recreated, which `p4a start` does after a token changes, and they aren't in a Sandbox created from a rebuilt image.
+`agent` installs its own tools without root, into its home: `npm install -g` (into `~/.npm-global`), `uv tool install`, `bun add -g` and `pip install --user`. They're on PATH, and survive `p4a stop` and `p4a start`. They're lost when the Sandbox is recreated, by `p4a recreate` or by `p4a start` after a token changes.
 
 After the build, `p4a` labels the Base image with when it was built and which Claude Code it has, and prints both:
 
@@ -144,7 +175,7 @@ To change the baseline:
 
 1. Edit `images/base/claude-baseline/`. For another plugin, add its marketplace to `extraKnownMarketplaces` and turn it on in `enabledPlugins`. If its download needs a domain beyond GitHub, add it to `share/build-allowlist`, never to the default Allowlist.
 2. Rebuild the images with `p4a image build`.
-3. Recreate each Sandbox that should have it. There's no `p4a recreate` yet (#13); until then, only new projects and Sandboxes `p4a start` recreates after a token change get the new image. New Sandboxes get the whole new baseline. An existing Sandbox gets the rebuilt image's plugins, but keeps its own copies of the baseline files. To give it the current baseline files it doesn't have, delete its marker in the Sandbox (`rm ~/.claude/.podman4ai-baseline`), then run `p4a stop` and `p4a start`. To reset a file to the baseline as well, delete that file too (for example `rm ~/.claude/settings.json`).
+3. Recreate each Sandbox that should have it, with `p4a recreate <project>` or `p4a recreate --all`. New Sandboxes get the whole new baseline. An existing Sandbox gets the rebuilt image's plugins, but keeps its own copies of the baseline files. To give it the current baseline files it doesn't have, delete its marker in the Sandbox (`rm ~/.claude/.podman4ai-baseline`), then run `p4a stop` and `p4a start`. To reset a file to the baseline as well, delete that file too (for example `rm ~/.claude/settings.json`).
 
 The Base image build has no open internet. Its only way out is an Egress proxy that allows just the domains in [`share/build-allowlist`](share/build-allowlist) (ADR 0003, ADR 0005). Afterwards `p4a` lists the domains the proxy allowed and refused. The full log stays in the stopped proxy container until the next build: `p4a podman logs podman4ai-build-proxy`. If a build fails because a domain was refused, and that domain should be allowed, add it to `share/build-allowlist`.
 
@@ -187,4 +218,4 @@ test/host/secrets.sh       # each Sandbox sees only its own Repo token, no token
 test/host/base-image.sh    # every Base image tool runs as agent, user installs survive a restart, labels
 ```
 
-`test/host/isolation.sh` needs both images built. It creates two throwaway projects, `spoon-knife` (from `octocat/Spoon-Knife`) and `test-repo1` (from `octocat/test-repo1`), and runs each check inside a Sandbox with `p4a shell <project> -- <command>`. The checks cover: non-allowlisted domains refused and logged, allowlisted domains working through the proxy, `p4a blocked` listing a refused domain, `p4a allow` opening a domain within seconds for its own project only and `p4a disallow` closing it again, no outside DNS, no Host paths, non-root user with no capabilities, no sudo and no-new-privileges, no Podman socket, no route from one Sandbox to another or to its proxy, the Claude baseline (its plugins loaded from the image by a real Claude session, with nothing refused by the Egress proxy, context-mode's doctor passing, memory staying in its own project, and a recreated Sandbox keeping its Claude config), and the process and memory limits. The Claude session check sends one short prompt on the Agent token. Afterwards it removes both projects, their volumes and their network, even after a failure or Ctrl-C. It refuses to start if anything with those names already exists. To use other public repos, set `P4A_ISOLATION_REPO_A` and `P4A_ISOLATION_REPO_B` to `owner/repo`. It refuses to run inside a Sandbox.
+`test/host/isolation.sh` needs both images built. It creates two throwaway projects, `spoon-knife` (from `octocat/Spoon-Knife`) and `test-repo1` (from `octocat/test-repo1`), and runs each check inside a Sandbox with `p4a shell <project> -- <command>`. The checks cover: non-allowlisted domains refused and logged, allowlisted domains working through the proxy, `p4a blocked` listing a refused domain, `p4a allow` opening a domain within seconds for its own project only and `p4a disallow` closing it again, no outside DNS, no Host paths, non-root user with no capabilities, no sudo and no-new-privileges, no Podman socket, no route from one Sandbox to another or to its proxy, the Claude baseline (its plugins loaded from the image by a real Claude session, with nothing refused by the Egress proxy, context-mode's doctor passing, memory staying in its own project), `p4a recreate` giving a running Sandbox the current Base image and keeping it running with its uncommitted work and Claude config, and the process and memory limits. The Claude session check sends one short prompt on the Agent token. Afterwards it removes both projects, their volumes and their network, even after a failure or Ctrl-C. It refuses to start if anything with those names already exists. To use other public repos, set `P4A_ISOLATION_REPO_A` and `P4A_ISOLATION_REPO_B` to `owner/repo`. It refuses to run inside a Sandbox.

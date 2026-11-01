@@ -461,12 +461,19 @@ EOF
   fi
 }
 
-# Replacing A's Sandbox keeps its Claude config volume: the memory and a
-# change to its baseline settings are still there, not reset to the
-# baseline. Recreates the Sandbox as p4a does when its tokens change
-# (until `p4a recreate` exists, #13, which should replace this).
+# p4a recreate replaces A's running Sandbox with a new one, from the
+# current Base image, that's running again, and keeps its volumes:
+# uncommitted work in the source, its memory, and a change to its baseline
+# settings are still there, not reset to the baseline.
 RECREATE_MARK="p4a-isolation-recreate-$$"
-recreate_keeps_claude_config() {
+recreate_keeps_volumes() {
+  local before after base
+  before="$(p4a podman container inspect --format '{{.Id}}' "podman4ai-$A")" \
+    || { echo "couldn't find $A's Sandbox"; return 1; }
+  # Uncommitted work: a new file in the clone, not added to git.
+  # shellcheck disable=SC2016 # expanded by sh in the Sandbox
+  in_sandbox "$A" sh -c 'echo "$1" > p4a-uncommitted-check.txt' _ "$RECREATE_MARK" \
+    || { echo "couldn't write uncommitted work in $A"; return 1; }
   script_in "$A" "$RECREATE_MARK" <<'EOF' || { echo "couldn't change $A's Claude config"; return 1; }
 set -e
 node -e '
@@ -479,15 +486,15 @@ dir="$HOME/.claude/projects/-workspace-check/memory"
 mkdir -p "$dir" && echo "$1" > "$dir/p4a-recreate-check.md"
 EOF
   local out
-  out="$( {
-    p4a stop "$A" && p4a podman rm "podman4ai-$A" \
-      && bash -c 'set -euo pipefail; P4A_HOME="$1"
-          for lib in common podman hyperv machine image secret project allowlist; do
-            source "$P4A_HOME/lib/$lib.sh"
-          done
-          _p4a_create_sandbox "$2"' _ "$repo" "$A" \
-      && p4a start "$A"
-  } 2>&1)" || { echo "couldn't recreate $A's Sandbox: $out"; return 1; }
+  out="$(p4a recreate "$A" 2>&1 < /dev/null)" || { echo "p4a recreate $A failed: $out"; return 1; }
+  after="$(p4a podman container inspect --format '{{.Id}} {{.State.Running}} {{.Image}}' "podman4ai-$A")" \
+    || { echo "$A has no Sandbox after p4a recreate"; return 1; }
+  base="$(p4a podman image inspect --format '{{.Id}}' localhost/podman4ai-base)"
+  [[ ${after%% *} != "$before" ]] || { echo "p4a recreate kept $A's old Sandbox"; return 1; }
+  [[ $after == *" true $base" ]] \
+    || { echo "$A's new Sandbox isn't running on the current Base image ($after; base $base)"; return 1; }
+  in_sandbox "$A" grep -qF "$RECREATE_MARK" p4a-uncommitted-check.txt \
+    || { echo "the uncommitted work in $A's source is gone"; return 1; }
   in_sandbox "$A" grep -qF "$RECREATE_MARK" /home/agent/.claude/settings.json \
     || { echo "the change to $A's settings.json is gone"; return 1; }
   in_sandbox "$A" grep -rqF "$RECREATE_MARK" /home/agent/.claude/projects \
@@ -649,8 +656,8 @@ main() {
     baseline_plugins_load_within_the_allowlist
   check "context-mode's doctor passes" context_mode_doctor_passes
   check "a memory written in A's Sandbox doesn't appear in B's" memory_stays_in_its_project
-  check "recreating a Sandbox keeps its Claude config volume, and the baseline doesn't undo its changes" \
-    recreate_keeps_claude_config
+  check "p4a recreate gives a running Sandbox the current Base image, keeps it running, and keeps uncommitted work and Claude config" \
+    recreate_keeps_volumes
   check "Sandbox A cannot reach Sandbox B or B's Egress proxy" sandbox_a_cannot_reach_b
   check "the process limit is in effect" process_limit_is_in_effect
   check "the memory limit is in effect" memory_limit_is_in_effect

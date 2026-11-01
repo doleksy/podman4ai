@@ -18,14 +18,15 @@ load helpers
   [[ "$output" == *"p4a machine"* ]]
   [[ "$output" == *"p4a image build"* ]]
   [[ "$output" == *"p4a podman"* ]]
-  for command in new start stop shell claude; do
+  for command in new start stop shell claude recreate rm list status; do
     [[ "$output" == *"p4a $command "* ]]
   done
   [ -z "$(podman_calls)" ]
 }
 
 @test "project commands with the wrong arguments fail with a usage error" {
-  for args in "new" "new not-a-repo" "new a/b c/d" "start" "stop a b" "shell" "shell hello-world git log" "claude"; do
+  for args in "new" "new not-a-repo" "new a/b c/d" "start" "stop a b" "shell" "shell hello-world git log" "claude" \
+      "recreate" "recreate a b" "rm" "rm a b" "list a" "status a b"; do
     # shellcheck disable=SC2086
     run p4a $args
     [ "$status" -eq 2 ]
