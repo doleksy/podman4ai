@@ -93,7 +93,7 @@ A project's Host settings are in `%APPDATA%\podman4ai\projects\` (or `$P4A_CONFI
 p4a claude hello-world --dangerously-skip-permissions
 ```
 
-Closing the terminal leaves the session running. Run `p4a claude hello-world` again, from any Git Bash or VS Code terminal, to come back to it. Arguments given while a session is already running aren't used (`p4a` says so): quit Claude Code there first to start a new session with them. To leave without closing the terminal, detach with `Ctrl-b d`. When Claude Code exits, the session ends.
+Closing the terminal leaves the session running. Run `p4a claude hello-world` again, from any Git Bash, to come back to it. In VS Code, open a Git Bash terminal (the default PowerShell one can't run `p4a`). Arguments given while a session is already running aren't used (`p4a` says so): quit Claude Code there first to start a new session with them. To leave without closing the terminal, detach with `Ctrl-b d`. When Claude Code exits, the session ends.
 
 `p4a shell hello-world` stays a plain shell beside the session. From there, `tmux attach -t claude` reaches the session too.
 
