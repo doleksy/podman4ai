@@ -44,6 +44,9 @@ p4a stop <project>   stop a project's Sandbox and Egress proxy
 p4a shell <project>  open a shell in a project's Sandbox, in its source folder
 p4a shell <project> -- <command>...
                      run one command there and return its exit code
+p4a claude <project> [<claude argument>...]
+                     attach to the project's Claude Code session, starting the project
+                     and the session if needed (see Claude sessions)
 p4a allow <project> <domain>
                      let a project's Sandbox reach a domain (or *.domain), without a restart
 p4a disallow <project> <domain>
@@ -64,7 +67,7 @@ A project with no Repo token works with a public repo, but can't push: git says 
 
 Projects created before secrets existed get their tokens the same way, at their next stop and start, once the images are rebuilt.
 
-Each Sandbox mounts the Agent token at `/run/secrets/agent-token` and only its own project's Repo token, if it has one, at `/run/secrets/repo-token`, readable only by `agent`. `p4a shell` runs every command through `p4a-session`, which hands the Agent token to Claude Code. git uses a credential helper that reads the Repo token for `https://github.com`. Commits carry your name and email, from the Host's `git config --global user.name` and `user.email`. Claude Code adds a Co-Authored-By line to the commits it makes.
+Each Sandbox mounts the Agent token at `/run/secrets/agent-token` and only its own project's Repo token, if it has one, at `/run/secrets/repo-token`, readable only by `agent`. `p4a shell` and `p4a claude` run every command through `p4a-session`, which hands the Agent token to Claude Code. git uses a credential helper that reads the Repo token for `https://github.com`. Commits carry your name and email, from the Host's `git config --global user.name` and `user.email`. Claude Code adds a Co-Authored-By line to the commits it makes.
 
 ### Projects
 
@@ -81,6 +84,18 @@ Every start runs a self-check from inside the Sandbox: `github.com` must be reac
 If `p4a new` fails partway, it removes what it created, so you can run it again. It never reuses or removes a volume, network or container that already had the project's name.
 
 A project's Host settings are in `%APPDATA%\podman4ai\projects\` (or `$P4A_CONFIG_DIR/projects`): `<project>.conf`, and its Allowlist additions in `<project>.allowlist`. They're outside every repo and every Sandbox, so no Agent can change them.
+
+### Claude sessions
+
+`p4a claude hello-world` is the everyday way to work with an Agent. It starts the project first if it's stopped (Egress proxy, Sandbox and self-check, as `p4a start` does), then attaches to the project's Claude session: a tmux session named `claude` running Claude Code in the source folder. If there's no session yet, it starts one, passing any further arguments to Claude Code:
+
+```
+p4a claude hello-world --dangerously-skip-permissions
+```
+
+Closing the terminal leaves the session running. Run `p4a claude hello-world` again, from any Git Bash or VS Code terminal, to come back to it. Arguments given while a session is already running aren't used (`p4a` says so): quit Claude Code there first to start a new session with them. To leave without closing the terminal, detach with `Ctrl-b d`. When Claude Code exits, the session ends.
+
+`p4a shell hello-world` stays a plain shell beside the session. From there, `tmux attach -t claude` reaches the session too.
 
 ### Allowlists
 

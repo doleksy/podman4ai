@@ -32,6 +32,7 @@ main() {
     start) shift; p4a_start "$@" ;;
     stop) shift; p4a_stop "$@" ;;
     shell) shift; p4a_shell "$@" ;;
+    claude) shift; p4a_claude "$@" ;;
     allow) shift; p4a_allow "$@" ;;
     disallow) shift; p4a_disallow "$@" ;;
     blocked) shift; p4a_blocked "$@" ;;
@@ -63,6 +64,11 @@ Commands:
   p4a shell <project> [-- <command>...]
                           open a shell in a project's Sandbox, or run one
                           command there and return its exit code
+  p4a claude <project> [<claude argument>...]
+                          start a project if it's stopped, then attach to its
+                          Claude Code session, which keeps running when the
+                          terminal closes. If there's none, start one, passing
+                          the arguments to Claude Code
   p4a allow <project> <domain>
                           let a project's Sandbox reach a domain (or
                           *.domain for its subdomains), without a restart

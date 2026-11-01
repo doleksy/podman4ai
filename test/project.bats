@@ -262,11 +262,59 @@ hello_world_running() {
   [ -z "$(sandbox_calls | grep '^exec ')" ]
 }
 
+# Whether hello-world's Sandbox has a Claude session: yes or no.
+claude_session() {
+  fake_podman "--connection podman4ai exec podman4ai-hello-world tmux has-session -t =claude" \
+    --exit "$([[ $1 == yes ]] && echo 0 || echo 1)"
+}
+
+@test "claude starts a tmux session running Claude Code in the source folder, with the extra arguments" {
+  hello_world_running
+  claude_session no
+  run p4a claude hello-world --dangerously-skip-permissions --model "opus 5"
+  [ "$status" -eq 0 ]
+  [ "$(_calls 'c.args.includes("p4a-session") ? JSON.stringify(c.args) : null')" = '["--connection","podman4ai","exec","-i","-w","/workspace/hello-world","podman4ai-hello-world","p4a-session","tmux","new-session","-A","-s","claude","-c","/workspace/hello-world","claude","--dangerously-skip-permissions","--model","opus 5"]' ]
+}
+
+@test "claude reattaches to a running Claude session rather than starting a second one, and says the extra arguments weren't used" {
+  hello_world_running
+  claude_session yes
+  run p4a claude hello-world --dangerously-skip-permissions
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--dangerously-skip-permissions"* ]]
+  [ "$(_calls 'c.args.includes("p4a-session") ? JSON.stringify(c.args) : null')" = '["--connection","podman4ai","exec","-i","-w","/workspace/hello-world","podman4ai-hello-world","p4a-session","tmux","attach-session","-t","=claude"]' ]
+}
+
+@test "claude starts a stopped Sandbox first, with its Egress proxy and self-check" {
+  hello_world_exists
+  fake_podman "--connection podman4ai container inspect --format {{.State.Running}} podman4ai-hello-world" --stdout false
+  claude_session no
+  run p4a claude hello-world
+  [ "$status" -eq 0 ]
+  local calls
+  calls="$(sandbox_calls)"
+  # The proxy, then the Sandbox, then the self-check, then Claude Code.
+  [ "$(grep -E '^start |curl https://example.com --noproxy|tmux new-session' <<< "$calls" | cut -d' ' -f1-3)" = "start podman4ai-hello-world-proxy
+start podman4ai-hello-world
+exec podman4ai-hello-world curl
+exec -i -w" ]
+  [[ "$output" == *"starting hello-world"* ]]
+}
+
+@test "claude fails clearly when it can't check for a Claude session, and starts none" {
+  hello_world_running
+  fake_podman "--connection podman4ai exec podman4ai-hello-world tmux has-session" --exit 125
+  run p4a claude hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"couldn't check for a Claude session in hello-world"* ]]
+  [ -z "$(sandbox_calls | grep 'p4a-session')" ]
+}
+
 @test "an unknown project name gives a clear error listing the known projects" {
   sandbox_machine_running
   p4a new octo/spoon-knife
   p4a new octo/hello-world
-  for command in start stop shell; do
+  for command in start stop shell claude; do
     run p4a "$command" hello-wrld
     [ "$status" -eq 1 ]
     [[ "$output" == *"unknown project 'hello-wrld'"* ]]
