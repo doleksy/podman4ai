@@ -13,7 +13,8 @@
 #    non-root user.
 # 2. python3, python and pip are the newest stable CPython (as python.org
 #    lists it now), uv uses it without downloading one, and the Agent
-#    can't write to it.
+#    can't write to it. For a few days after a Python release this fails
+#    until uv's next release knows of it; rebuild then.
 # 3. npm install -g, uv tool install and pip install --user work without
 #    root, and what they installed is still there after p4a stop and start.
 # 4. Claude Code's self-updater, telemetry and error reporting are off.
