@@ -84,7 +84,8 @@ Commands:
                           then ask before deleting its volumes and settings
   p4a list                show every project: running or stopped, its image
                           and the image's age
-  p4a status <project>    show one project's state, image and limits
+  p4a status [<project>]  show one project's state, image and limits (with
+                          no project, the same as p4a list)
   p4a allow <project> <domain>
                           let a project's Sandbox reach a domain (or
                           *.domain for its subdomains), without a restart

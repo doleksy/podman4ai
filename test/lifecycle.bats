@@ -39,8 +39,7 @@ podman4ai-hello-world-claude:/home/agent/.claude" ]
   hello_world_running true
   run p4a recreate hello-world
   [ "$status" -eq 0 ]
-  [ "$(container_lifecycle_calls)" = "stop podman4ai-hello-world podman4ai-hello-world-proxy
-rm -f --ignore podman4ai-hello-world podman4ai-hello-world-proxy
+  [ "$(container_lifecycle_calls)" = "rm -f --ignore podman4ai-hello-world podman4ai-hello-world-proxy
 create --name podman4ai-hello-world-proxy
 create --name podman4ai-hello-world
 start podman4ai-hello-world-proxy
@@ -57,8 +56,7 @@ start podman4ai-hello-world" ]
   fake_podman "--connection podman4ai container inspect --format {{.State.Running}} podman4ai-spoon-knife" --stdout false
   run p4a recreate --all
   [ "$status" -eq 0 ]
-  [ "$(container_lifecycle_calls)" = "stop podman4ai-hello-world podman4ai-hello-world-proxy
-rm -f --ignore podman4ai-hello-world podman4ai-hello-world-proxy
+  [ "$(container_lifecycle_calls)" = "rm -f --ignore podman4ai-hello-world podman4ai-hello-world-proxy
 create --name podman4ai-hello-world-proxy
 create --name podman4ai-hello-world
 start podman4ai-hello-world-proxy
@@ -100,9 +98,8 @@ volume_removals() {
     : > "$FAKE_PODMAN_DIR/calls.jsonl"
     run p4a rm hello-world <<< "$answer"
     [ "$status" -eq 0 ]
-    [ "$(container_lifecycle_calls)" = "stop podman4ai-hello-world podman4ai-hello-world-proxy
-rm -f --ignore podman4ai-hello-world podman4ai-hello-world-proxy" ]
-    sandbox_calls | has_line "network rm -f podman4ai-hello-world"
+    [ "$(container_lifecycle_calls)" = "rm -f --ignore podman4ai-hello-world podman4ai-hello-world-proxy" ]
+    sandbox_calls | has_line "network rm podman4ai-hello-world"
     [ -z "$(volume_removals)" ]
     # It names what deleting them would lose, and says they were kept.
     [[ "$output" == *"podman4ai-hello-world-source"* ]]
@@ -270,4 +267,49 @@ podman4ai-hello-world-repo-token=id-1"
   [ "$status" -eq 1 ]
   [[ "$output" == *"cpus=many"* ]]
   [ -z "$(sandbox_calls | grep -E '^(rm|create) ')" ]
+}
+
+@test "rm again, after an rm that kept the volumes, still offers to delete them" {
+  hello_world_exists
+  # The Sandbox, Egress proxy and network are gone; podman can't remove a
+  # network that doesn't exist.
+  fake_podman "--connection podman4ai network rm" --exit 1 --stderr "Error: unable to find network with name or ID podman4ai-hello-world: network not found"
+  run p4a rm hello-world <<< "hello-world"
+  [ "$status" -eq 0 ]
+  [ "$(volume_removals)" = "volume rm podman4ai-hello-world-source podman4ai-hello-world-claude" ]
+  [ ! -e "$P4A_CONFIG_DIR/projects/hello-world.conf" ]
+}
+
+@test "rm removes nothing if podman can't say whether the Sandbox exists" {
+  hello_world_exists
+  fake_podman "--connection podman4ai container exists podman4ai-hello-world" --exit 125
+  run p4a rm hello-world <<< "hello-world"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"couldn't check whether the container podman4ai-hello-world exists"* ]]
+  [ -z "$(sandbox_calls | grep -E '^(stop|rm|network rm|volume rm) ')" ]
+  [ -f "$P4A_CONFIG_DIR/projects/hello-world.conf" ]
+}
+
+@test "recreate stops before removing anything if an image it needs isn't built" {
+  hello_world_exists
+  hello_world_running true
+  fake_podman "--connection podman4ai image exists localhost/podman4ai-base" --exit 1
+  run p4a recreate hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"localhost/podman4ai-base"* ]]
+  [[ "$output" == *"p4a image build"* ]]
+  [ -z "$(sandbox_calls | grep -E '^(stop|rm|create) ')" ]
+}
+
+@test "list and status don't claim a newer Base image when there's none" {
+  hello_world_exists
+  sandbox_image hello-world image-a 2
+  fake_podman "--connection podman4ai image inspect --format {{.Id}} localhost/podman4ai-base" --exit 125 \
+    --stderr "Error: localhost/podman4ai-base: image not known"
+  run p4a list
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"newer Base image"* ]]
+  run p4a status hello-world
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"newer Base image"* ]]
 }

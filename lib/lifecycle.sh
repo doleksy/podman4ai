@@ -11,15 +11,21 @@ p4a_recreate() {
   [[ $1 == --all ]] || _p4a_require_project "$1"
   p4a_require_running_sandbox_machine
   p4a_require_agent_token
+  _p4a_require_images
   [[ $1 == --all ]] || { _p4a_recreate_project "$1"; return; }
 
+  local projects
+  projects="$(_p4a_known_projects)"
+  if [[ -z $projects ]]; then
+    echo "There are no projects yet. Create one with: p4a new <owner/repo>"
+    return 0
+  fi
   # Each project in a p4a of its own, so one that fails (its self-check,
   # say) still leaves the rest recreated.
   local project failed=()
   while read -r project; do
-    [[ -n $project ]] || continue
     "$P4A_HOME/bin/p4a" recreate "$project" < /dev/null || failed+=("$project")
-  done < <(_p4a_known_projects)
+  done <<< "$projects"
   (( ${#failed[@]} == 0 )) \
     || p4a_die "couldn't recreate ${failed[*]} (see the messages above); every other project was recreated" \
       "fix what the messages say, then run 'p4a recreate <project>' for each"
@@ -30,42 +36,59 @@ p4a_recreate() {
 # running is started again, with the self-check; a stopped one stays
 # stopped.
 _p4a_recreate_project() {
-  local project=$1 sandbox proxy running
-  # Check the limits settings before removing anything.
-  # shellcheck disable=SC2034 # only checked here; _p4a_create_sandbox uses them
-  local limits=()
-  _p4a_sandbox_limits "$project" limits
-  sandbox="$(_p4a_sandbox_name "$project")"
-  proxy="$(_p4a_proxy_name "$project")"
-  running="$(_p4a_sandbox_state "$project")"
-  [[ $running != running ]] || _p4a_stop_project "$project"
-  p4a_sandbox_podman rm -f --ignore "$sandbox" "$proxy" >/dev/null
-  local status=0
-  p4a_sandbox_podman network exists "$(_p4a_network_name "$project")" || status=$?
-  case $status in
-    0) ;;
-    1) _p4a_create_network "$project" ;;
-    *) p4a_die "couldn't check whether the network of $project exists (podman exited with $status)" \
-         "check the Sandbox machine with 'p4a machine status', then run 'p4a recreate $project' again" ;;
-  esac
-  _p4a_create_proxy "$project"
-  _p4a_create_sandbox "$project"
-  [[ $running != running ]] || _p4a_start_project "$project"
+  local project=$1 state
+  _p4a_check_sandbox_limits "$project"
+  state="$(_p4a_sandbox_state "$project")"
+  _p4a_remove_containers "$project"
+  _p4a_part_exists network "$(_p4a_network_name "$project")" || _p4a_create_network "$project"
+  _p4a_create_proxy "$project" \
+    || p4a_die "couldn't create the Egress proxy for $project (see podman's message above); its volumes are kept" \
+      "run 'p4a recreate $project' again"
+  _p4a_create_sandbox "$project" \
+    || p4a_die "couldn't create the Sandbox for $project (see podman's message above); its volumes are kept" \
+      "run 'p4a recreate $project' again"
+  [[ $state != running ]] || _p4a_start_project "$project"
   echo "Recreated $project from the current images; its source and Claude config are kept."
 }
 
-# Print the state of PROJECT's Sandbox: running, stopped, or missing if it
-# doesn't exist (as after p4a rm, which keeps the volumes).
-_p4a_sandbox_state() {
-  local status=0 running
-  p4a_sandbox_podman container exists "$(_p4a_sandbox_name "$1")" || status=$?
+# Exit, saying how to build them, unless the Egress proxy image and the
+# Base image both exist, so nothing is removed that can't be recreated.
+_p4a_require_images() {
+  local image
+  for image in "$P4A_PROXY_IMAGE" "$P4A_BASE_IMAGE"; do
+    _p4a_part_exists image "$image" \
+      || p4a_die "the image $image isn't built, so a Sandbox can't be recreated" \
+        "build the images with 'p4a image build', then try again"
+  done
+}
+
+# Remove PROJECT's Sandbox and Egress proxy, stopping them first if they're
+# running. Either may already be gone.
+_p4a_remove_containers() {
+  p4a_sandbox_podman rm -f --ignore "$(_p4a_sandbox_name "$1")" "$(_p4a_proxy_name "$1")" >/dev/null
+}
+
+# _p4a_part_exists KIND NAME
+# Succeed if the KIND (container, network, volume or image) NAME exists in
+# the Sandbox machine, fail if not. Exit if podman can't tell.
+_p4a_part_exists() {
+  local status=0
+  p4a_sandbox_podman "$1" exists "$2" || status=$?
   case $status in
-    0) ;;
-    1) echo missing; return 0 ;;
-    *) p4a_die "couldn't check whether the Sandbox for $1 exists (podman exited with $status)" \
+    0) return 0 ;;
+    1) return 1 ;;
+    *) p4a_die "couldn't check whether the $1 $2 exists (podman exited with $status)" \
          "check the Sandbox machine with 'p4a machine status'" ;;
   esac
-  running="$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$(_p4a_sandbox_name "$1")")"
+}
+
+# Print the state of PROJECT's Sandbox: running, stopped, or removed if it
+# doesn't exist (after p4a rm, which may keep the volumes).
+_p4a_sandbox_state() {
+  local sandbox running
+  sandbox="$(_p4a_sandbox_name "$1")"
+  _p4a_part_exists container "$sandbox" || { echo removed; return 0; }
+  running="$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$sandbox")"
   [[ $running == true ]] && echo running || echo stopped
 }
 
@@ -80,9 +103,14 @@ p4a_rm() {
   _p4a_require_project "$project"
   p4a_require_running_sandbox_machine
 
-  [[ "$(_p4a_sandbox_state "$project")" != running ]] || _p4a_stop_project "$project"
-  p4a_sandbox_podman rm -f --ignore "$(_p4a_sandbox_name "$project")" "$(_p4a_proxy_name "$project")" >/dev/null
-  p4a_sandbox_podman network rm -f "$(_p4a_network_name "$project")" >/dev/null
+  # Exits, removing nothing, if podman can't say what exists.
+  local network
+  network="$(_p4a_network_name "$project")"
+  _p4a_part_exists container "$(_p4a_sandbox_name "$project")" || true
+  _p4a_remove_containers "$project"
+  if _p4a_part_exists network "$network"; then
+    p4a_sandbox_podman network rm "$network" >/dev/null
+  fi
   echo "Removed the Sandbox, Egress proxy and network of $project."
 
   local project_volume claude_volume answer=""
@@ -120,13 +148,11 @@ _p4a_read_project_status() {
   local project=$1 base_id=$2 info image_id
   P4A_STATE="$(_p4a_sandbox_state "$project")"
   P4A_IMAGE="" P4A_IMAGE_BUILT="" P4A_IMAGE_DAYS="" P4A_IMAGE_CURRENT=true
-  if [[ $P4A_STATE == missing ]]; then
-    P4A_STATE=removed
-    return 0
-  fi
+  [[ $P4A_STATE != removed ]] || return 0
   info="$(p4a_sandbox_podman container inspect --format '{{.ImageName}}|{{.Image}}' "$(_p4a_sandbox_name "$project")")"
   P4A_IMAGE="${info%%|*}" image_id="${info#*|}"
-  [[ $image_id == "$base_id" ]] || P4A_IMAGE_CURRENT=false
+  # With no Base image built, there's nothing newer to move to.
+  [[ -z $base_id || $image_id == "$base_id" ]] || P4A_IMAGE_CURRENT=false
   local created
   created="$(p4a_sandbox_podman image inspect \
     --format "{{index .Labels \"$P4A_CREATED_LABEL\"}}" "$image_id" 2>/dev/null)" || created=""

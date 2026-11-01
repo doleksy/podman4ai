@@ -314,6 +314,14 @@ pids pids-limit $P4A_SANDBOX_PIDS ^[1-9][0-9]*$ 8192
 EOF
 }
 
+# Exit, naming the setting, if one of PROJECT's limits isn't a value p4a
+# can use. Called before a Sandbox is removed to be recreated.
+_p4a_check_sandbox_limits() {
+  # shellcheck disable=SC2034 # only checked here; _p4a_create_sandbox uses them
+  local limits=()
+  _p4a_sandbox_limits "$1" limits
+}
+
 # Recreate PROJECT's Sandbox if it doesn't mount the current tokens.
 # Podman copies a container's secrets when it's created, so a token stored
 # or replaced since then reaches the Sandbox only this way. Its Project
@@ -335,10 +343,7 @@ _p4a_refresh_sandbox_tokens() {
     p4a_note "the Sandbox for $project is running with old tokens. To give it the current ones, run 'p4a stop $project', then 'p4a start $project'"
     return 0
   fi
-  # Check the limits settings before removing anything.
-  # shellcheck disable=SC2034 # only checked here; _p4a_create_sandbox uses them
-  local limits=()
-  _p4a_sandbox_limits "$project" limits
+  _p4a_check_sandbox_limits "$project"
   p4a_note "Recreating the Sandbox for $project to give it the current tokens. Its source and Claude config are kept; anything else changed inside it is lost."
   p4a_sandbox_podman rm "$sandbox" >/dev/null
   _p4a_create_sandbox "$project" \
