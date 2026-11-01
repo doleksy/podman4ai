@@ -3,8 +3,10 @@
 # allows any subdomain of example.com. Kept here, not in any image or repo
 # an Agent can write to, so only a reviewed change to podman4ai can widen it.
 
-# Claude Code
+# Claude Code. An interactive session checks platform.claude.com when it
+# starts (until its first-run setup is done) and quits if it can't reach it.
 api.anthropic.com
+platform.claude.com
 
 # GitHub over HTTPS (git, gh, downloads)
 github.com

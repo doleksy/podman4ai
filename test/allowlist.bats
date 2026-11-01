@@ -36,6 +36,8 @@ saved_additions() {
   [ "$(saved_additions hello-world)" = "example.org" ]
   [ "$(pushed_allowlist podman4ai-hello-world-proxy)" = "$(default_allowlist; echo example.org)" ]
   has_line "api.anthropic.com" <<< "$(pushed_allowlist podman4ai-hello-world-proxy)"
+  # Interactive Claude Code won't start in a new Sandbox without it.
+  has_line "platform.claude.com" <<< "$(pushed_allowlist podman4ai-hello-world-proxy)"
   [[ "$output" == *"example.org"*"within a few seconds"* ]]
 }
 
