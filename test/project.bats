@@ -370,11 +370,6 @@ podman4ai-spoon-knife-repo-token,type=mount,target=repo-token,uid=1000,gid=1000,
   [ -z "$(sandbox_calls | grep '^secret create')" ]
 }
 
-# What hello-world's Sandbox mounts: lines of SECRET=ID.
-hello_world_mounts() {
-  fake_podman "--connection podman4ai container inspect --format {{range .Config.Secrets}}{{.Name}}={{.ID}}{{println}}{{end}} podman4ai-hello-world" --stdout "$1"
-}
-
 # The calls that remove, create or start hello-world's Sandbox, in order.
 sandbox_lifecycle_calls() {
   sandbox_calls | grep -E '^(rm|create --name podman4ai-hello-world |start podman4ai-hello-world$)' | sed 's/^\(create --name podman4ai-hello-world\) .*/\1/'

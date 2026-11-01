@@ -57,3 +57,8 @@ has_line() {
 flag_values() {
   awk -v f="$1" '$0 == f { getline; print; next } index($0, f "=") == 1 { print substr($0, length(f) + 2) }'
 }
+
+# What hello-world's Sandbox mounts: lines of SECRET=ID.
+hello_world_mounts() {
+  fake_podman "--connection podman4ai container inspect --format {{range .Config.Secrets}}{{.Name}}={{.ID}}{{println}}{{end}} podman4ai-hello-world" --stdout "$1"
+}

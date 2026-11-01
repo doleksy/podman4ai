@@ -20,6 +20,8 @@ source "$P4A_HOME/lib/secret.sh"
 source "$P4A_HOME/lib/project.sh"
 # shellcheck source=../lib/allowlist.sh
 source "$P4A_HOME/lib/allowlist.sh"
+# shellcheck source=../lib/lifecycle.sh
+source "$P4A_HOME/lib/lifecycle.sh"
 
 main() {
   local command="${1:-}"
@@ -33,6 +35,10 @@ main() {
     stop) shift; p4a_stop "$@" ;;
     shell) shift; p4a_shell "$@" ;;
     claude) shift; p4a_claude "$@" ;;
+    recreate) shift; p4a_recreate "$@" ;;
+    rm) shift; p4a_rm "$@" ;;
+    list) shift; p4a_list "$@" ;;
+    status) shift; p4a_status "$@" ;;
     allow) shift; p4a_allow "$@" ;;
     disallow) shift; p4a_disallow "$@" ;;
     blocked) shift; p4a_blocked "$@" ;;
@@ -69,6 +75,16 @@ Commands:
                           Claude session (Claude Code in tmux), which keeps
                           running when the terminal closes. If there's none,
                           start one, passing the arguments to Claude Code
+  p4a recreate <project>  replace a project's Sandbox and Egress proxy with new
+                          ones from the current images and limits, keeping its
+                          source and Claude config, and leave it running or
+                          stopped as it was
+  p4a recreate --all      the same for every project
+  p4a rm <project>        remove a project's Sandbox, Egress proxy and network,
+                          then ask before deleting its volumes and settings
+  p4a list                show every project: running or stopped, its image
+                          and the image's age
+  p4a status <project>    show one project's state, image and limits
   p4a allow <project> <domain>
                           let a project's Sandbox reach a domain (or
                           *.domain for its subdomains), without a restart
