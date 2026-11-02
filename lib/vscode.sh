@@ -8,13 +8,13 @@
 # helper, so those requests come back empty), without SSH_AUTH_SOCK, and
 # only once VS Code's settings stop it setting up anything else.
 
-# The VS Code settings p4a code needs, as they're written in settings.json.
-P4A_VSCODE_REQUIRED_SETTINGS=(
-  '"dev.containers.dockerPath": "podman"'
-  '"dev.containers.copyGitConfig": false'
-  '"dev.containers.gitCredentialHelperConfigLocation": "none"'
-  '"dev.containers.dockerCredentialHelper": false'
-)
+# The VS Code settings p4a code needs, one per line: the setting, a regex
+# for the values it accepts (in settings.json, without spaces), and the
+# value to suggest. dockerPath may also be a full path to podman.
+P4A_VSCODE_REQUIRED_SETTINGS='dev.containers.dockerPath "([^"]*[/\\])?podman(\.exe)?" "podman"
+dev.containers.copyGitConfig false false
+dev.containers.gitCredentialHelperConfigLocation "none" "none"
+dev.containers.dockerCredentialHelper false false'
 
 # Where VS Code keeps its user settings.
 _p4a_vscode_settings_file() {
@@ -61,14 +61,17 @@ p4a_code() {
 }
 
 # Exit, naming them, unless VS Code's settings have every setting p4a code
-# needs. Spacing in the file doesn't matter.
+# needs. Spacing doesn't matter, commented-out lines don't count, and
+# where a setting appears twice the last one counts, as in VS Code.
 _p4a_require_vscode_settings() {
-  local file compact="" setting missing=()
+  local file text="" key accepted suggested value missing=()
   file="$(_p4a_vscode_settings_file)"
-  [[ -r $file ]] && compact="$(tr -d ' \t\r\n' < "$file")"
-  for setting in "${P4A_VSCODE_REQUIRED_SETTINGS[@]}"; do
-    [[ $compact == *"${setting// /}"* ]] || missing+=("$setting")
-  done
+  [[ -r $file ]] && text="$(grep -vE '^[[:space:]]*//' "$file" | tr -d ' \t\r\n')"
+  while read -r key accepted suggested; do
+    value="$(grep -oE "\"${key//./\\.}\":[^,}]*" <<< "$text" | tail -1)" || true
+    value="${value#*:}"
+    [[ $value =~ ^($accepted)$ ]] || missing+=("\"$key\": $suggested")
+  done <<< "$P4A_VSCODE_REQUIRED_SETTINGS"
   (( ${#missing[@]} == 0 )) && return 0
   {
     echo "p4a: VS Code's settings would let an attached Sandbox use Windows' git or Docker credentials, or not find the Sandbox machine. Add these to $file:"

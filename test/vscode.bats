@@ -82,3 +82,20 @@ hello_world_for_code() {
   [[ "$output" == *"ssh-agent"* ]]
   [[ "$output" == *"Stop-Service ssh-agent"* ]]
 }
+
+@test "code's settings check skips commented-out lines, takes the last of a repeated setting, and accepts a full path to podman" {
+  hello_world_for_code '{
+  "dev.containers.dockerPath": "C:\Program Files\RedHat\Podman\podman.exe",
+  // "dev.containers.copyGitConfig": false,
+  "dev.containers.gitCredentialHelperConfigLocation": "none",
+  "dev.containers.gitCredentialHelperConfigLocation": "global",
+  "dev.containers.dockerCredentialHelper": false
+}'
+  run p4a code hello-world
+  [ "$status" -eq 1 ]
+  [ -z "$(code_calls)" ]
+  [[ "$output" == *'"dev.containers.copyGitConfig": false'* ]]
+  [[ "$output" == *'"dev.containers.gitCredentialHelperConfigLocation": "none"'* ]]
+  [[ "$output" != *'"dev.containers.dockerPath"'* ]]
+  [[ "$output" != *'"dev.containers.dockerCredentialHelper"'* ]]
+}

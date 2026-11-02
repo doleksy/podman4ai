@@ -137,6 +137,7 @@ start podman4ai-hello-world-port-3000" ]
   hello_world_exists
   hello_world_state true
   hello_world_ports 3000
+  fake_podman "--connection podman4ai container inspect --format {{.State.Running}} podman4ai-hello-world-port-3000" --stdout true
   run p4a port hello-world 3000
   [ "$status" -eq 0 ]
   [[ "$output" == *"already published at http://localhost:3000"* ]]
@@ -176,4 +177,27 @@ start podman4ai-hello-world-port-3000" ]
   [[ "$output" == *"Cannot find module"* ]]
   [[ "$output" == *"p4a image build"* ]]
   sandbox_calls | has_line "rm -f podman4ai-hello-world-port-3000"
+}
+
+@test "port starts a published port's forwarder again if it couldn't start with the project" {
+  hello_world_exists
+  hello_world_state true
+  hello_world_ports 3000
+  fake_podman "--connection podman4ai container inspect --format {{.State.Running}} podman4ai-hello-world-port-3000" --stdout false
+  run p4a port hello-world 3000
+  [ "$status" -eq 0 ]
+  sandbox_calls | has_line "start podman4ai-hello-world-port-3000"
+  [ -z "$(sandbox_calls | grep -E '^(create|rm) ')" ]
+  [[ "$output" == *"Published port 3000"* ]]
+}
+
+@test "recreate removes nothing if podman can't list a project's ports" {
+  hello_world_exists
+  hello_world_state true
+  fake_podman "--connection podman4ai ps --all --filter label=podman4ai.port-of=hello-world" --exit 125 \
+    --stderr "Error: something went wrong"
+  run p4a recreate hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"couldn't list the Port forwarders of hello-world"* ]]
+  [ -z "$(sandbox_calls | grep -E '^(rm|create) ')" ]
 }

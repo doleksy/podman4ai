@@ -101,10 +101,12 @@ while read -r address; do
   fi
 done <<< "$addresses"
 (( others )) || echo "SKIP  the Host has no other IPv4 address to check"
-if netstat -ano -p TCP | tr -d '\r' | grep -E "LISTENING" | grep -E ":$port " | grep -vqE "127\.0\.0\.1:$port "; then
-  fail "something on Windows listens on port $port on an address other than 127.0.0.1"
+# IPv4 and IPv6: only loopback (127.0.0.1 or [::1]) may listen on it.
+if netstat -ano | tr -d '\r' | grep -E "LISTENING" | grep -E ":$port " \
+    | grep -vqE "(127\.0\.0\.1|\[::1\]):$port "; then
+  fail "something on Windows listens on port $port on an address other than loopback"
 else
-  pass "Windows listens on port $port only on 127.0.0.1"
+  pass "Windows listens on port $port only on loopback"
 fi
 
 echo "--- 3. The Sandbox still can't reach the internet directly"

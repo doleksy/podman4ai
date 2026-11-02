@@ -2,7 +2,7 @@
 # p4a port and unport: publish one Sandbox port to Windows localhost.
 #
 # A Sandbox publishes no ports: it's on an internal network with no route
-# out. Each published port is a port forwarder of its own (ADR 0007), a
+# out. Each published port is a Port forwarder of its own (ADR 0007), a
 # small container from the Egress proxy image on Podman's default network
 # and the project's, published to 127.0.0.1 on Windows only. It passes
 # connections to that port of the Sandbox at its fixed address, and
@@ -28,7 +28,21 @@ p4a_port() {
   p4a_require_running_sandbox_machine
   [[ -n $port ]] || { _p4a_list_ports "$project"; return; }
 
-  if _p4a_project_ports "$project" | grep -qx -- "$port"; then
+  local forwarder running
+  forwarder="$(_p4a_forwarder_name "$project" "$port")"
+  running="$(_p4a_sandbox_running "$project")"
+  if _p4a_port_published "$project" "$port"; then
+    # Its Port forwarder may not have started with the project (its port
+    # was taken on Windows, say): try again.
+    if [[ $running == true && \
+        "$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$forwarder")" != true ]]; then
+      p4a_sandbox_podman start "$forwarder" >/dev/null \
+        || p4a_die "couldn't publish port $port of $project on Windows (see podman's message above)" \
+          "check no Windows program is already using port $port, then try again; or take it back with 'p4a unport $project $port'"
+      _p4a_wait_for_forwarder "$forwarder"
+      echo "Published port $port of $project's Sandbox at http://localhost:$port on Windows only."
+      return 0
+    fi
     echo "Port $port of $project is already published at http://localhost:$port."
     return 0
   fi
@@ -41,12 +55,10 @@ p4a_port() {
     || p4a_die "the Sandbox for $project is from an older podman4ai, with no fixed address to publish its ports from" \
       "run 'p4a recreate $project' (it keeps the source and Claude config), then try again"
 
-  local forwarder
-  forwarder="$(_p4a_forwarder_name "$project" "$port")"
   _p4a_create_forwarder "$project" "$port" \
-    || p4a_die "couldn't create the forwarder for port $port of $project (see podman's message above)" \
+    || p4a_die "couldn't create the Port forwarder for port $port of $project (see podman's message above)" \
       "run 'p4a port $project $port' again"
-  if [[ "$(_p4a_sandbox_running "$project")" != true ]]; then
+  if [[ $running != true ]]; then
     echo "Port $port of $project's Sandbox will be at http://localhost:$port on Windows only, when $project starts."
     return 0
   fi
@@ -74,7 +86,7 @@ _p4a_wait_for_forwarder() {
     sleep 0.5
   done
   p4a_sandbox_podman rm -f "$forwarder" >/dev/null
-  p4a_die "the port forwarder didn't start. Its log: ${log:-(empty)}" \
+  p4a_die "the Port forwarder didn't start. Its log: ${log:-(empty)}" \
     "rebuild the images with 'p4a image build', then try again"
 }
 
@@ -86,7 +98,7 @@ p4a_unport() {
   _p4a_require_port "$port"
   _p4a_require_project "$project"
   p4a_require_running_sandbox_machine
-  _p4a_project_ports "$project" | grep -qx -- "$port" \
+  _p4a_port_published "$project" "$port" \
     || p4a_die "port $port of $project isn't published" "see which are with 'p4a port $project'"
   p4a_sandbox_podman rm -f "$(_p4a_forwarder_name "$project" "$port")" >/dev/null
   echo "Stopped publishing port $port of $project's Sandbox at http://localhost:$port."
@@ -106,26 +118,55 @@ _p4a_list_ports() {
   done <<< "$ports"
 }
 
+# Succeed if PROJECT publishes PORT. Exit if podman can't say (explicitly:
+# callers use this as a condition, where errexit is off).
+_p4a_port_published() {
+  local ports
+  ports="$(_p4a_project_ports "$1")" || exit 1
+  grep -qx -- "$2" <<< "$ports"
+}
+
 # Print the ports PROJECT publishes, one per line, in order.
 _p4a_project_ports() {
-  local prefix
+  local prefix names=() name
   prefix="$(_p4a_forwarder_name "$1" "")"
-  _p4a_project_forwarders "$1" | sed "s/^$prefix//" | sort -n
+  _p4a_read_forwarders "$1" names
+  for name in "${names[@]}"; do
+    echo "${name#"$prefix"}"
+  done | sort -n
 }
 
-# Print the names of PROJECT's port forwarders, one per line.
+# Print the names of PROJECT's Port forwarders, one per line. Exit if
+# podman can't say, so nothing acts on a list that's wrongly empty.
 _p4a_project_forwarders() {
-  p4a_sandbox_podman ps --all --filter "label=$P4A_PORT_OF_LABEL=$1" --format '{{.Names}}' | grep -v '^$' || true
+  local names
+  names="$(p4a_sandbox_podman ps --all --filter "label=$P4A_PORT_OF_LABEL=$1" --format '{{.Names}}')" \
+    || p4a_die "couldn't list the Port forwarders of $1 (see podman's message above)" \
+      "check the Sandbox machine with 'p4a machine status', then try again"
+  grep -v '^$' <<< "$names" || true
 }
 
-# Start PROJECT's port forwarders, if it has any. One that can't start (its
+# _p4a_read_forwarders PROJECT ARRAY
+# Set ARRAY to the names of PROJECT's Port forwarders. If podman can't
+# say, this exits, except as part of a condition (stopping a project after
+# a failed self-check), which goes on with an empty list.
+# shellcheck disable=SC2034 # forwarder_names is a nameref: it sets the caller's array
+_p4a_read_forwarders() {
+  local -n forwarder_names=$2
+  local list
+  list="$(_p4a_project_forwarders "$1")"
+  forwarder_names=()
+  [[ -z $list ]] || mapfile -t forwarder_names <<< "$list"
+}
+
+# Start PROJECT's Port forwarders, if it has any. One that can't start (its
 # port taken on Windows, say) is reported, not fatal: the project runs on.
 _p4a_start_forwarders() {
   local forwarders=()
-  mapfile -t forwarders < <(_p4a_project_forwarders "$1")
+  _p4a_read_forwarders "$1" forwarders
   (( ${#forwarders[@]} )) || return 0
   p4a_sandbox_podman start "${forwarders[@]}" >/dev/null \
-    || p4a_note "couldn't publish every port of $1 (see podman's message above); is a Windows program already using it? See them with 'p4a port $1'"
+    || p4a_note "couldn't publish every port of $1 (see podman's message above); is a Windows program already using one? Once it's free, run 'p4a port $1 <port>' to try again"
 }
 
 # Exit unless PORT is a TCP port number.
@@ -136,7 +177,7 @@ _p4a_require_port() {
 }
 
 # _p4a_create_forwarder PROJECT PORT
-# Create the port forwarder publishing PORT of PROJECT's Sandbox.
+# Create the Port forwarder publishing PORT of PROJECT's Sandbox.
 _p4a_create_forwarder() {
   local project=$1 port=$2 sandbox_ip
   sandbox_ip="$(_p4a_sandbox_ip "$project")"

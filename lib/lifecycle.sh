@@ -50,7 +50,7 @@ _p4a_recreate_project() {
       "run 'p4a recreate $project' again"
   while read -r port; do
     [[ -z $port ]] || _p4a_create_forwarder "$project" "$port" \
-      || p4a_die "couldn't recreate the forwarder for port $port of $project (see podman's message above)" \
+      || p4a_die "couldn't recreate the Port forwarder for port $port of $project (see podman's message above)" \
         "publish it again with 'p4a port $project $port'"
   done <<< "$ports"
   [[ $state != running ]] || _p4a_start_project "$project"
@@ -68,11 +68,11 @@ _p4a_require_images() {
   done
 }
 
-# Remove PROJECT's Sandbox, Egress proxy and port forwarders, stopping them
+# Remove PROJECT's Sandbox, Egress proxy and Port forwarders, stopping them
 # first if they're running. Any may already be gone.
 _p4a_remove_containers() {
   local forwarders=()
-  mapfile -t forwarders < <(_p4a_project_forwarders "$1")
+  _p4a_read_forwarders "$1" forwarders
   p4a_sandbox_podman rm -f --ignore "$(_p4a_sandbox_name "$1")" "$(_p4a_proxy_name "$1")" \
     "${forwarders[@]}" >/dev/null
 }
@@ -120,7 +120,7 @@ p4a_rm() {
   if _p4a_part_exists network "$network"; then
     p4a_sandbox_podman network rm "$network" >/dev/null
   fi
-  echo "Removed the Sandbox, Egress proxy and network of $project."
+  echo "Removed the Sandbox, Egress proxy, Port forwarders and network of $project."
 
   local project_volume claude_volume answer=""
   project_volume="$(_p4a_project_volume_name "$project")"

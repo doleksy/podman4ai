@@ -239,7 +239,7 @@ _p4a_project_ip() {
 _p4a_proxy_ip() { _p4a_project_ip "$1" 2; }
 
 # Print the fixed address of PROJECT's Sandbox on the project's network,
-# where its port forwarders reach it (lib/port.sh).
+# where its Port forwarders reach it (lib/port.sh).
 _p4a_sandbox_ip() { _p4a_project_ip "$1" 3; }
 
 # The label a Sandbox with a fixed address carries, with the address.
@@ -448,10 +448,10 @@ _p4a_start_project() {
   _p4a_start_forwarders "$project"
 }
 
-# Stop PROJECT's Sandbox, its Egress proxy and its port forwarders together.
+# Stop PROJECT's Sandbox, its Egress proxy and its Port forwarders together.
 _p4a_stop_project() {
   local project=$1 forwarders=()
-  mapfile -t forwarders < <(_p4a_project_forwarders "$project")
+  _p4a_read_forwarders "$project" forwarders
   p4a_sandbox_podman stop "$(_p4a_sandbox_name "$project")" "$(_p4a_proxy_name "$project")" \
     "${forwarders[@]}" >/dev/null
 }
