@@ -119,7 +119,9 @@ if [[ "$(p4a shell "$P" -- id -u < /dev/null)" != 0 ]]; then
 else
   fail "the Sandbox runs as root"
 fi
-if p4a status "$P" | grep -q "Project image"; then
+# Captured first: with pipefail, grep -q exiting early makes p4a fail on SIGPIPE.
+status_out="$(p4a status "$P")"
+if grep -q "Project image" <<< "$status_out"; then
   pass "p4a status shows the Project image"
 else
   fail "p4a status doesn't mention the Project image"
