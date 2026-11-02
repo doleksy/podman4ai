@@ -51,6 +51,7 @@ _p4a_build_allowlist() {
 }
 
 p4a_image_build() {
+  [[ ${1:-} != -* ]] || { p4a_image_usage; return; }
   (( $# <= 1 )) || p4a_usage_error "image build takes at most one project name" "p4a image --help"
   (( $# == 0 )) || { _p4a_build_project_image "$1"; return; }
   p4a_require_running_sandbox_machine
@@ -200,6 +201,15 @@ _p4a_containerfile() {
   echo "$(_p4a_projects_dir)/$1.Containerfile"
 }
 
+# Succeed if PROJECT has a Containerfile, so its Sandbox uses a Project image.
+_p4a_has_containerfile() {
+  [[ -f "$(_p4a_containerfile "$1")" ]]
+}
+
+# The label naming the Base image (by ID) a Project image was built on, so
+# p4a can tell when the Base image has been rebuilt since.
+P4A_BASE_ID_LABEL=podman4ai.base-image-id
+
 # Build PROJECT's Project image from the Containerfile in its Host settings,
 # through an Egress proxy loaded with the project's effective Allowlist.
 _p4a_build_project_image() {
@@ -207,10 +217,10 @@ _p4a_build_project_image() {
   _p4a_require_project "$project"
   containerfile="$(_p4a_containerfile "$project")"
   image="$(_p4a_project_image "$project")"
-  [[ -f $containerfile ]] \
+  _p4a_has_containerfile "$project" \
     || p4a_die "$project has no Project image: there's no $containerfile" \
       "write a Containerfile there that starts with 'FROM $P4A_BASE_IMAGE', then run 'p4a image build $project' again"
-  _p4a_require_base_image_containerfile "$project" "$containerfile"
+  _p4a_require_safe_containerfile "$project" "$containerfile"
   p4a_require_running_sandbox_machine
   local needed
   for needed in "$P4A_PROXY_IMAGE" "$P4A_BASE_IMAGE"; do
@@ -226,11 +236,13 @@ _p4a_build_project_image() {
   trap "rm -rf '$context'" EXIT
   cp "$containerfile" "$context/Containerfile"
 
-  local built=true created allowlist
+  local built=true created allowlist base_id
   created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   allowlist="$(_p4a_effective_allowlist "$project" | paste -sd ' ' -)"
+  base_id="$(_p4a_base_image_id)"
   _p4a_build_through_proxy "$allowlist" --no-cache --pull=never \
     --label "$P4A_CREATED_LABEL=$created" \
+    --label "$P4A_BASE_ID_LABEL=$base_id" \
     -t "$image" "$(p4a_native_path "$context")" \
     || built=false
 
@@ -240,37 +252,102 @@ _p4a_build_project_image() {
   echo "To move $project's Sandbox onto it, run: p4a recreate $project"
 }
 
-# _p4a_require_base_image_containerfile PROJECT CONTAINERFILE
-# Exit, saying why, unless every build stage in CONTAINERFILE starts from
-# the Base image or from an earlier stage, so the Project image is built on
-# the Base image. A FROM naming a variable is refused too, since its image
-# can't be known here. (The build also never pulls, so a FROM this misses
-# fails rather than reaching a registry.)
-_p4a_require_base_image_containerfile() {
-  local project=$1 file=$2 line joined="" words=() image stages=" " froms=0
+# _p4a_require_safe_containerfile PROJECT CONTAINERFILE
+# Exit, saying why, unless CONTAINERFILE builds on the Base image and its
+# only way out is the build's Egress proxy. So every build stage starts from
+# the Base image or an earlier stage, and these are refused: ADD (buildah
+# downloads its URLs itself, around the proxy), RUN --network or --security,
+# COPY --from or RUN --mount from anything but an earlier stage, ONBUILD,
+# and an escape directive (it changes how lines join). Anything named by a
+# variable is refused too, since it can't be known here. The file is read
+# as the build reads it: comment lines are dropped even mid-instruction, a
+# backslash at the end of a line continues it, and heredoc bodies are text.
+_p4a_require_safe_containerfile() {
+  local project=$1 file=$2 line n=0 start=0 joined="" heredoc="" words=()
+  local stages=" " stage_count=0 instruction word source
   while IFS= read -r line || [[ -n $line ]]; do
     line="${line%$'\r'}"
-    # A line ending in a backslash continues on the next.
+    n=$(( n + 1 ))
+    if [[ -n $heredoc ]]; then
+      # <<- lets the closing word be indented.
+      [[ "${line#"${line%%[![:space:]]*}"}" == "$heredoc" ]] && heredoc=""
+      continue
+    fi
+    if [[ $line =~ ^[[:space:]]*#[[:space:]]*escape[[:space:]]*= ]]; then
+      _p4a_containerfile_refused "$project" "$n" "has an escape directive, which changes how p4a and the build read it" \
+        "remove the escape directive line"
+    fi
+    [[ $line =~ ^[[:space:]]*# ]] && continue
+    [[ -n $joined ]] || start=$n
     if [[ $line =~ \\[[:space:]]*$ ]]; then
       joined+="${line%\\*} "
       continue
     fi
     read -ra words <<< "$joined$line"
     joined=""
-    [[ ${words[0]:-} =~ ^[Ff][Rr][Oo][Mm]$ ]] || continue
-    froms=$(( froms + 1 ))
+    (( ${#words[@]} )) || continue
+    for word in "${words[@]}"; do
+      [[ $word =~ ^\<\<-?[\"\']?([A-Za-z_][A-Za-z0-9_]*)[\"\']? ]] && heredoc="${BASH_REMATCH[1]}"
+    done
+    instruction="${words[0]^^}"
     words=("${words[@]:1}")
-    while [[ ${words[0]:-} == --* ]]; do words=("${words[@]:1}"); done
-    image="${words[0]:-}"
-    if [[ $image != "$P4A_BASE_IMAGE" && $image != "$P4A_BASE_IMAGE:latest" \
-        && $stages != *" ${image,,} "* ]]; then
-      p4a_die "the Containerfile for $project starts a build stage from '${image:-(nothing)}', but a Project image must build on the Base image" \
-        "start every stage with 'FROM $P4A_BASE_IMAGE' (or an earlier stage's name) in $file"
-    fi
-    [[ ${words[1]:-} =~ ^[Aa][Ss]$ && -n ${words[2]:-} ]] && stages+="${words[2],,} "
+    case $instruction in
+      FROM)
+        while [[ ${words[0]:-} == --* ]]; do words=("${words[@]:1}"); done
+        if [[ ${words[0]:-} != "$P4A_BASE_IMAGE" && ${words[0]:-} != "$P4A_BASE_IMAGE:latest" ]] \
+            && ! _p4a_is_stage "${words[0]:-}" "$stages" "$stage_count"; then
+          _p4a_containerfile_refused "$project" "$start" "starts a build stage from '${words[0]:-(nothing)}', but a Project image must build on the Base image" \
+            "start every stage with 'FROM $P4A_BASE_IMAGE' (or an earlier stage's name)"
+        fi
+        stage_count=$(( stage_count + 1 ))
+        [[ ${words[1]:-} =~ ^[Aa][Ss]$ && -n ${words[2]:-} ]] && stages+="${words[2],,} "
+        ;;
+      ADD)
+        _p4a_containerfile_refused "$project" "$start" "uses ADD, which can download around the Egress proxy" \
+          "download in a RUN step instead (its downloads go through the Egress proxy), or COPY --from an earlier stage"
+        ;;
+      ONBUILD)
+        _p4a_containerfile_refused "$project" "$start" "uses ONBUILD, whose steps would run in a later build without these Egress proxy checks" \
+          "remove the ONBUILD line"
+        ;;
+      COPY | RUN)
+        for word in "${words[@]}"; do
+          [[ $word == --* ]] || break
+          source=""
+          case $word in
+            --network* | --security*)
+              _p4a_containerfile_refused "$project" "$start" "uses $instruction ${word%%=*}, which could take a step around the Egress proxy" \
+                "remove ${word%%=*}" ;;
+            --from=*) source="${word#--from=}" ;;
+            --mount=*)
+              [[ ,${word#--mount=}, =~ ,from=([^,]*), ]] && source="${BASH_REMATCH[1]}" ;;
+          esac
+          [[ -z $source ]] || _p4a_is_stage "$source" "$stages" "$stage_count" \
+            || _p4a_containerfile_refused "$project" "$start" "uses files from '$source', but a Project image may use only its own earlier build stages, so nothing comes from another image around the Egress proxy" \
+              "build what's needed in an earlier stage (FROM $P4A_BASE_IMAGE AS <name>) and use --from=<name>"
+        done
+        ;;
+    esac
   done < "$file"
-  (( froms )) || p4a_die "the Containerfile for $project has no FROM line, but a Project image must build on the Base image" \
-    "start it with 'FROM $P4A_BASE_IMAGE' in $file"
+  [[ -z $heredoc ]] \
+    || _p4a_containerfile_refused "$project" "$n" "has a heredoc that never ends (no line '$heredoc')" \
+      "end the heredoc with a line holding just $heredoc"
+  (( stage_count )) \
+    || _p4a_containerfile_refused "$project" "$n" "has no FROM line, but a Project image must build on the Base image" \
+      "start it with 'FROM $P4A_BASE_IMAGE'"
+}
+
+# _p4a_is_stage NAME STAGES COUNT
+# Succeed if NAME is one of the earlier build stages: a name in STAGES
+# (" name name "), or a stage number below COUNT.
+_p4a_is_stage() {
+  [[ -n $1 && $2 == *" ${1,,} "* ]] || [[ $1 =~ ^[0-9]+$ && $1 -lt $3 ]]
+}
+
+# _p4a_containerfile_refused PROJECT LINE WHAT FIX
+# Exit: PROJECT's Containerfile, at line LINE, WHAT.
+_p4a_containerfile_refused() {
+  p4a_die "the Containerfile for $1 (line $2) $3" "$4 in $(_p4a_containerfile "$1"), then run 'p4a image build $1' again"
 }
 
 # Print the image PROJECT's Sandbox is created from: its Project image if
@@ -278,7 +355,7 @@ _p4a_require_base_image_containerfile() {
 # build it, if its Project image isn't built.
 _p4a_sandbox_image() {
   local project=$1 image
-  [[ -f "$(_p4a_containerfile "$project")" ]] || { echo "$P4A_BASE_IMAGE"; return 0; }
+  _p4a_has_containerfile "$project" || { echo "$P4A_BASE_IMAGE"; return 0; }
   image="$(_p4a_project_image "$project")"
   _p4a_part_exists image "$image" \
     || p4a_die "$project has a Containerfile, but its Project image $image isn't built" \

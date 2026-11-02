@@ -102,6 +102,57 @@ RUN echo final'
   [ "$status" -eq 0 ]
 }
 
+@test "image build PROJECT refuses any step that could reach the network, or another image, around the Egress proxy" {
+  hello_world_exists
+  project_build_can_run
+  local base='FROM localhost/podman4ai-base' containerfile
+  for containerfile in \
+      "$base"$'\nADD https://example.org/tool.tar.gz /opt/' \
+      "$base"$'\nadd tool.tar.gz /opt/' \
+      "$base"$'\nRUN --network=host curl https://example.org' \
+      "$base"$'\nRUN --network=none true' \
+      "$base"$'\nCOPY --from=localhost/podman4ai-proxy / /' \
+      "$base"$'\nRUN --mount=type=bind,from=localhost/podman4ai-proxy,target=/p true' \
+      "$base"$'\nRUN --mount=type=bind,target=/p,from=docker.io/library/golang true' \
+      "$base"$'\nONBUILD ADD https://example.org/x /x'; do
+    hello_world_containerfile "$containerfile"
+    run p4a image build hello-world
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Egress proxy"* ]]
+  done
+  [ -z "$(sandbox_calls | grep -E '^(build|run) ')" ]
+}
+
+@test "image build PROJECT reads a Containerfile the way the build does, so no FROM hides from the check" {
+  hello_world_exists
+  project_build_can_run
+  local containerfile
+  for containerfile in \
+      $'FROM localhost/podman4ai-base\n# a comment ending in a backslash \\\nFROM localhost/podman4ai-proxy' \
+      $'# escape=`\nFROM localhost/podman4ai-base'; do
+    hello_world_containerfile "$containerfile"
+    run p4a image build hello-world
+    [ "$status" -eq 1 ]
+  done
+  [ -z "$(sandbox_calls | grep -E '^(build|run) ')" ]
+}
+
+@test "image build PROJECT accepts copies and mounts from earlier stages, and heredocs" {
+  hello_world_exists
+  project_build_can_run
+  hello_world_containerfile 'FROM localhost/podman4ai-base AS tools
+RUN <<EOF
+echo FROM inside a heredoc is just text
+ADD https://example.org/ is too
+EOF
+FROM localhost/podman4ai-base
+COPY --from=tools /usr/local/bin/ /usr/local/bin/
+COPY --from=0 /etc/hostname /tmp/
+RUN --mount=type=cache,target=/root/.cache --mount=type=bind,from=tools,target=/t true'
+  run p4a image build hello-world
+  [ "$status" -eq 0 ]
+}
+
 @test "the Project image build never pulls an image, so nothing reaches a registry around the Egress proxy" {
   hello_world_exists
   project_build_can_run
@@ -311,7 +362,7 @@ project_image_id() {
   [[ "$output" == *"newer image"*"hello-world"* ]]
 }
 
-@test "status says to build a project's Project image when its Containerfile has none yet" {
+@test "status says to build a project's Project image when it has a Containerfile but no built Project image" {
   hello_world_exists
   hello_world_containerfile "$GO_CONTAINERFILE"
   sandbox_image hello-world image-b 2
@@ -333,4 +384,51 @@ project_image_id() {
   [[ "$output" == *"over 14 days old"*"p4a image build"*"p4a image build hello-world"*"p4a recreate hello-world"* ]]
   run p4a list
   [[ "$output" == *"over 14 days old"*"p4a image build <project>"* ]]
+}
+
+# The Base image hello-world's Project image was built on.
+project_image_base() {
+  fake_podman "--connection podman4ai image inspect --format {{index .Labels \"podman4ai.base-image-id\"}} $PROJECT_IMAGE" --stdout "$1"
+}
+
+@test "the Project image is labelled with the Base image it was built on" {
+  hello_world_exists
+  project_build_can_run
+  base_image_id image-b
+  hello_world_containerfile "$GO_CONTAINERFILE"
+  run p4a image build hello-world
+  [ "$status" -eq 0 ]
+  flag_values --label < <(project_build_args) | has_line podman4ai.base-image-id=image-b
+}
+
+@test "list and status say to rebuild a Project image built on an older Base image" {
+  hello_world_exists
+  hello_world_containerfile "$GO_CONTAINERFILE"
+  sandbox_image hello-world image-p 2 "$PROJECT_IMAGE"
+  project_image_id image-p
+  project_image_base image-old
+  base_image_id image-new
+  run p4a status hello-world
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"older Base image"*"p4a image build hello-world"*"p4a recreate hello-world"* ]]
+  run p4a list
+  [[ "$output" == *"older Base image"*"hello-world"* ]]
+
+  # Once rebuilt on the current one, no nudge.
+  project_image_base image-new
+  run p4a status hello-world
+  [[ "$output" != *"older Base image"* ]]
+}
+
+@test "new removes a Project image left from an earlier project of the same name" {
+  sandbox_machine_running
+  run p4a new octo/hello-world
+  [ "$status" -eq 0 ]
+  sandbox_calls | has_line "image rm --ignore $PROJECT_IMAGE"
+}
+
+@test "image build --help shows how to build a Project image" {
+  run p4a image build --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"build <project>"* ]]
 }

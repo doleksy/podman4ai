@@ -203,10 +203,11 @@ p4a image build hello-world   # builds localhost/podman4ai-project-hello-world
 p4a recreate hello-world      # moves the Sandbox onto it
 ```
 
-- Every build stage must start `FROM localhost/podman4ai-base` (or from an earlier stage's name). `p4a` refuses anything else, including a `FROM` that names a variable, and the build never pulls an image, so nothing reaches a registry except through the proxy. End with `USER agent`, so the Sandbox doesn't run as root.
-- The build sees only the Containerfile, so `COPY` and `ADD` of local files don't work: download what's needed in a `RUN` step instead.
+- Every build stage must start `FROM localhost/podman4ai-base` (or from an earlier stage's name). End with `USER agent`, so the Sandbox doesn't run as root.
+- Downloads happen in `RUN` steps, whose traffic goes through the proxy. `p4a` refuses, naming the line, anything that could get around it: `ADD` (buildah downloads its URLs itself), `RUN --network` or `--security`, `COPY --from` or `RUN --mount ... from=` naming anything but an earlier stage, `ONBUILD`, and an `escape` directive. It also refuses anything named by a variable, since it can't check it. The build never pulls an image, so nothing reaches a registry either.
+- The build sees only the Containerfile, so `COPY` of local files doesn't work.
 - Its only way out is an Egress proxy loaded with the project's effective Allowlist (the default plus the project's own additions), not the build Allowlist. When a download is refused, `p4a` lists the refused domain. Allow it with `p4a allow hello-world <domain>` (which lets the Sandbox reach it too) and build again. The Go example needs `go.dev` and `dl.google.com`.
-- Like the Base image, it's built from scratch each time, labelled with its build date, and shown with its age in `p4a list` and `p4a status`. It starts from the Base image as it is at that moment, so after `p4a image build`, run `p4a image build hello-world` too, then `p4a recreate hello-world`.
+- Like the Base image, it's built from scratch each time, labelled with its build date, and shown with its age in `p4a list` and `p4a status`. It starts from the Base image as it is at that moment, and records which. After `p4a image build`, `p4a list` and `p4a status` say which Project images were built on an older Base image: run `p4a image build hello-world` for each, then `p4a recreate hello-world`.
 - Once a project has a Containerfile, new and recreated Sandboxes use its Project image, and `p4a recreate` (or `p4a start` when it recreates a Sandbox) stops, removing nothing, until that image is built. Delete the Containerfile to go back to the Base image at the next `p4a recreate`. Projects without one keep using the Base image.
 - `p4a rm`, once you confirm deleting the project's Host settings, deletes its Containerfile and its Project image too.
 

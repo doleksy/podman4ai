@@ -161,6 +161,10 @@ p4a_new() {
   trap "_p4a_undo_new $project" EXIT
   _p4a_create_additions_file "$project"
 
+  # A Project image left from an earlier project of the same name (if p4a rm
+  # couldn't delete it) would otherwise be used once this one has a
+  # Containerfile. It holds nothing that can't be rebuilt.
+  p4a_sandbox_podman image rm --ignore "$(_p4a_project_image "$project")" >/dev/null
   p4a_sandbox_podman volume create "$project_volume" >/dev/null
   p4a_sandbox_podman volume create "$claude_volume" >/dev/null
 
@@ -327,9 +331,9 @@ EOF
 # Called before a Sandbox is removed to be recreated.
 _p4a_check_sandbox_can_be_created() {
   # shellcheck disable=SC2034 # only checked here; _p4a_create_sandbox uses them
-  local limits=() image
+  local limits=()
   _p4a_sandbox_limits "$1" limits
-  image="$(_p4a_sandbox_image "$1")"
+  _p4a_sandbox_image "$1" >/dev/null
 }
 
 # Recreate PROJECT's Sandbox if it doesn't mount the current tokens.
