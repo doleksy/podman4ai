@@ -2,20 +2,30 @@
 
 VS Code's interface runs on Windows and its engine (the VS Code server, extensions, terminal, git) runs inside the Sandbox, as the user `agent`, against the source in the Project volume (ADR 0001). Always attach with `p4a code`: it keeps Windows' credentials out of the Sandbox (ADR 0007).
 
-## One-time setup
+## Setup
 
-1. Install [VS Code](https://code.visualstudio.com) with **Add to PATH** ticked, and the **Dev Containers** extension (`ms-vscode-remote.remote-containers`).
-2. In VS Code, run **Preferences: Open User Settings (JSON)** and add:
+1. Install [VS Code](https://code.visualstudio.com) with **Add to PATH** ticked. Nothing else: `p4a code` sets up the rest.
+2. Don't run the Windows OpenSSH agent while VS Code is attached to a Sandbox: VS Code passes it in, and nothing turns that off, so an Agent could use your SSH keys. Check with `Get-Service ssh-agent` in PowerShell; `p4a code` warns when it's running.
 
-   ```jsonc
-   "dev.containers.dockerPath": "podman",
-   "dev.containers.copyGitConfig": false,
-   "dev.containers.gitCredentialHelperConfigLocation": "none",
-   "dev.containers.dockerCredentialHelper": false,
-   ```
+### A VS Code of its own
 
-   The first lets VS Code use Podman. The others stop VS Code copying your Windows git config into the Sandbox and setting up its git and Docker credential helpers there. `p4a code` refuses to start until they're all there, and names any that are missing.
-3. Don't run the Windows OpenSSH agent while VS Code is attached to a Sandbox: VS Code passes it in, and nothing turns that off, so an Agent could use your SSH keys. Check with `Get-Service ssh-agent` in PowerShell; `p4a code` warns when it's running.
+`p4a code` runs a VS Code of its own, apart from your everyday one: its own settings, sign-ins, extensions and remembered windows, in `%APPDATA%\podman4ai\vscode\` (VS Code's `--user-data-dir` and `--extensions-dir`). So:
+
+- None of your everyday sign-ins reach a Sandbox. VS Code hands its GitHub sign-in to extensions running in a container, so with your everyday VS Code, an extension in a Sandbox could use your GitHub account, not just the project's Repo token. Don't sign in to anything in `p4a code`'s VS Code.
+- Your everyday extensions don't follow you in. By default VS Code installs GitHub Copilot and Pull Requests into every container they're installed locally for (`remote.defaultExtensionsIfInstalledLocally`).
+- Your everyday VS Code never opens or restores a Sandbox window without `p4a code`'s protections.
+
+The first `p4a code` installs Dev Containers there and writes its settings file, `%APPDATA%\podman4ai\vscode\data\User\settings.json`:
+
+```jsonc
+"dev.containers.dockerPath": "podman",
+"dev.containers.copyGitConfig": false,
+"dev.containers.gitCredentialHelperConfigLocation": "none",
+"dev.containers.dockerCredentialHelper": false,
+"remote.defaultExtensionsIfInstalledLocally": [],
+```
+
+The first lets VS Code use Podman. The next three stop VS Code copying your Windows git config into the Sandbox and setting up its git and Docker credential helpers there. The last stops it copying extensions in. Add anything else you like (a theme, say): `p4a code` keeps your changes, but refuses to start if one of these is missing or changed, and names it.
 
 ## Attaching
 
@@ -23,9 +33,9 @@ VS Code's interface runs on Windows and its engine (the VS Code server, extensio
 p4a code hello-world
 ```
 
-This starts the project if it's stopped, then opens a new VS Code window attached to its Sandbox, in the source folder (`/workspace/<repo>`). The first time, VS Code downloads its server and any extensions into the Sandbox, through the Egress proxy. Terminals in that window run in the Sandbox as `agent`. Extensions you install there are installed in the Sandbox, and kept until it's recreated.
+This starts the project if it's stopped, then opens a window of `p4a code`'s VS Code attached to its Sandbox, in the source folder (`/workspace/<repo>`). The first time, VS Code asks you to confirm that attaching may run code in the container: accept. It then puts its server in the Sandbox; Dev Containers downloads it on Windows and copies it in. Terminals in that window run in the Sandbox as `agent`. Extensions you install there are installed in the Sandbox, and kept until it's recreated.
 
-VS Code finds the Sandbox machine because `p4a code` sets `CONTAINER_CONNECTION=podman4ai` for it; plain `podman` elsewhere keeps its own default. Only open Sandboxes with `p4a code`, never from VS Code's own **Attach to Running Container** menu or a recent-folders list. Those windows don't get `p4a code`'s settings, so VS Code can't find the Sandbox machine, or, worse, hands the Sandbox your Windows git credentials (see below).
+VS Code finds the Sandbox machine because `p4a code` sets `CONTAINER_CONNECTION=podman4ai` for it; plain `podman` elsewhere keeps its own default. Only open Sandboxes with `p4a code`, never from your everyday VS Code's **Attach to Running Container** menu: that VS Code has your sign-ins and extensions, and doesn't get `p4a code`'s protections, so it can hand the Sandbox your Windows git credentials (see below).
 
 If VS Code can't download something, see what the Egress proxy refused with `p4a blocked hello-world`, and allow it with `p4a allow`. The default Allowlist has VS Code's update server, download CDN and extension marketplace.
 

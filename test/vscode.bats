@@ -4,28 +4,37 @@
 
 load project-helpers
 
-# VS Code's user settings, with the settings p4a code needs.
+# Settings with everything p4a code needs.
 SAFE_SETTINGS='{
   // Dev Containers, for podman4ai
   "dev.containers.dockerPath": "podman",
   "dev.containers.copyGitConfig": false,
   "dev.containers.gitCredentialHelperConfigLocation": "none",
   "dev.containers.dockerCredentialHelper": false,
+  "remote.defaultExtensionsIfInstalledLocally": [],
   "editor.fontSize": 14
 }'
+
+# Where p4a code keeps the VS Code it opens: its own data and extensions,
+# apart from the developer's everyday VS Code.
+vscode_dir() { echo "$P4A_CONFIG_DIR/vscode"; }
+vscode_settings() { echo "$(vscode_dir)/data/User/settings.json"; }
 
 # What the stand-in code recorded.
 code_calls() {
   cat "$FAKE_CODE_DIR/calls" 2>/dev/null || true
 }
 
-# hello-world exists and is running, VS Code has SETTINGS (the safe ones by
-# default), and the Windows ssh-agent service is stopped.
+# hello-world exists and is running, and the Windows ssh-agent service is
+# stopped. p4a code's VS Code has SETTINGS (the safe ones by default; with
+# "none", no settings file yet) and Dev Containers installed.
 hello_world_for_code() {
   export FAKE_CODE_DIR="$BATS_TEST_TMPDIR/code"
   mkdir -p "$FAKE_CODE_DIR"
-  export P4A_VSCODE_SETTINGS="$BATS_TEST_TMPDIR/vscode-settings.json"
-  printf '%s\n' "${1:-$SAFE_SETTINGS}" > "$P4A_VSCODE_SETTINGS"
+  if [[ ${1:-} != none ]]; then
+    mkdir -p "$(dirname "$(vscode_settings)")" "$(vscode_dir)/extensions/ms-vscode-remote.remote-containers-0.469.0"
+    printf '%s\n' "${1:-$SAFE_SETTINGS}" > "$(vscode_settings)"
+  fi
   hello_world_exists
   fake_podman "--connection podman4ai container inspect --format {{.State.Running}} podman4ai-hello-world" --stdout true
   fake_powershell "Get-Service ssh-agent" --stdout Stopped
@@ -72,11 +81,12 @@ hello_world_for_code() {
   [[ "$output" == *'"dev.containers.gitCredentialHelperConfigLocation": "none"'* ]]
   [[ "$output" == *'"dev.containers.dockerCredentialHelper": false'* ]]
   [[ "$output" != *'"dev.containers.dockerPath": "podman"'* ]]
-  [[ "$output" == *"$P4A_VSCODE_SETTINGS"* ]]
+  [[ "$output" == *'"remote.defaultExtensionsIfInstalledLocally": []'* ]]
+  [[ "$output" == *"$(vscode_settings)"* ]]
 
   # Spacing doesn't matter.
-  printf '{"dev.containers.dockerPath":"podman","dev.containers.copyGitConfig":false,\n"dev.containers.gitCredentialHelperConfigLocation" :  "none", "dev.containers.dockerCredentialHelper":false}\n' \
-    > "$P4A_VSCODE_SETTINGS"
+  printf '{"dev.containers.dockerPath":"podman","dev.containers.copyGitConfig":false,\n"dev.containers.gitCredentialHelperConfigLocation" :  "none", "dev.containers.dockerCredentialHelper":false, "remote.defaultExtensionsIfInstalledLocally": [ ]}\n' \
+    > "$(vscode_settings)"
   run p4a code hello-world
   [ "$status" -eq 0 ]
 }
@@ -105,4 +115,37 @@ hello_world_for_code() {
   [[ "$output" == *'"dev.containers.gitCredentialHelperConfigLocation": "none"'* ]]
   [[ "$output" != *'"dev.containers.dockerPath"'* ]]
   [[ "$output" != *'"dev.containers.dockerCredentialHelper"'* ]]
+}
+
+@test "code opens a VS Code of its own, with its own settings, extensions and sign-ins, never the everyday one" {
+  hello_world_for_code
+  run p4a code hello-world
+  [ "$status" -eq 0 ]
+  code_calls | has_line "--user-data-dir"
+  code_calls | has_line "$(_native_path "$(vscode_dir)/data")"
+  code_calls | has_line "--extensions-dir"
+  code_calls | has_line "$(_native_path "$(vscode_dir)/extensions")"
+}
+
+@test "the first code writes its VS Code's settings and installs Dev Containers in it, once" {
+  hello_world_for_code none
+  run p4a code hello-world
+  [ "$status" -eq 0 ]
+  local settings
+  settings="$(tr -d ' \n' < "$(vscode_settings)")"
+  [[ $settings == *'"dev.containers.dockerPath":"podman"'* ]]
+  [[ $settings == *'"dev.containers.copyGitConfig":false'* ]]
+  [[ $settings == *'"dev.containers.gitCredentialHelperConfigLocation":"none"'* ]]
+  [[ $settings == *'"dev.containers.dockerCredentialHelper":false'* ]]
+  # VS Code's default would install the GitHub extensions in every Sandbox.
+  [[ $settings == *'"remote.defaultExtensionsIfInstalledLocally":[]'* ]]
+  [ "$(code_calls | grep -c -- '--install-extension')" -eq 1 ]
+  code_calls | has_line "ms-vscode-remote.remote-containers"
+
+  # The developer's own changes are kept, and Dev Containers isn't installed again.
+  printf '{\n  "workbench.colorTheme": "Default Dark Modern",\n%s\n' "$(tail -n +2 "$(vscode_settings)")" > "$(vscode_settings)"
+  run p4a code hello-world
+  [ "$status" -eq 0 ]
+  grep -q colorTheme "$(vscode_settings)"
+  [ "$(code_calls | grep -c -- '--install-extension')" -eq 1 ]
 }

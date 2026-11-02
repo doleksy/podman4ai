@@ -4,17 +4,31 @@
 # Records each call to $FAKE_CODE_DIR/calls: its arguments, one per line,
 # then the environment variables p4a code is expected to set or clear,
 # then a line "--". Also records whether GIT_CONFIG_GLOBAL names an empty
-# file.
+# file. Like VS Code, --install-extension EXT adds a folder for it to the
+# --extensions-dir given.
 set -euo pipefail
 dir=${FAKE_CODE_DIR:?fake code: FAKE_CODE_DIR is not set}
+
+unix_path() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else echo "$1"; fi
+}
+args=("$@") extensions_dir="" install=""
+for (( i = 0; i < ${#args[@]}; i++ )); do
+  case ${args[i]} in
+    --extensions-dir) extensions_dir="$(unix_path "${args[i + 1]}")" ;;
+    --install-extension) install="${args[i + 1]}" ;;
+  esac
+done
+if [[ -n $install && -n $extensions_dir ]]; then
+  mkdir -p "$extensions_dir/${install,,}-1.0.0"
+fi
 {
   printf '%s\n' "$@"
   for var in CONTAINER_CONNECTION CONTAINERS_MACHINE_PROVIDER GIT_CONFIG_NOSYSTEM GIT_CONFIG_GLOBAL SSH_AUTH_SOCK SSH_ASKPASS GIT_ASKPASS; do
     printf 'env %s=%s\n' "$var" "${!var-<unset>}"
   done
   if [[ -n ${GIT_CONFIG_GLOBAL:-} ]]; then
-    file="$GIT_CONFIG_GLOBAL"
-    command -v cygpath >/dev/null 2>&1 && file="$(cygpath -u "$file")"
+    file="$(unix_path "$GIT_CONFIG_GLOBAL")"
     if [[ -f $file && ! -s $file ]]; then echo "git config global: empty file"; else echo "git config global: not an empty file"; fi
   fi
   echo --

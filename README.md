@@ -137,7 +137,7 @@ Closing the terminal leaves the session running. Run `p4a claude hello-world` ag
 
 ### VS Code and dev servers
 
-`p4a code hello-world` opens VS Code attached to the project's Sandbox, in its source folder, with the editor engine, extensions and terminal running inside the Sandbox as `agent`. `p4a port hello-world 3000` publishes the Sandbox's port 3000 at `http://localhost:3000` on Windows only, and `p4a unport hello-world 3000` takes it back. See [docs/vscode.md](docs/vscode.md) for the one-time VS Code settings, which keep your Windows git credentials out of the Sandbox, and for what a dev server needs.
+`p4a code hello-world` opens VS Code attached to the project's Sandbox, in its source folder, with the editor engine, extensions and terminal running inside the Sandbox as `agent`. `p4a port hello-world 3000` publishes the Sandbox's port 3000 at `http://localhost:3000` on Windows only, and `p4a unport hello-world 3000` takes it back. `p4a code` runs a VS Code of its own, with its own settings, sign-ins and extensions, so none of your everyday ones (or your Windows git credentials) reach a Sandbox. See [docs/vscode.md](docs/vscode.md), including what a dev server needs.
 
 ### Allowlists
 
