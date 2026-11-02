@@ -58,6 +58,25 @@ flag_values() {
   awk -v f="$1" '$0 == f { getline; print; next } index($0, f "=") == 1 { print substr($0, length(f) + 2) }'
 }
 
+# sandbox_image PROJECT IMAGE_ID DAYS_OLD [IMAGE_NAME]
+# PROJECT's Sandbox was created from the image IMAGE_NAME (by default the
+# Base image) with IMAGE_ID, labelled as built DAYS_OLD days ago (or with
+# no build date if DAYS_OLD is "none").
+sandbox_image() {
+  local created=""
+  [[ $3 == none ]] || created="$(date -u -d "$3 days ago" +%Y-%m-%dT%H:%M:%SZ)"
+  fake_podman "--connection podman4ai container exists podman4ai-$1" --exit 0
+  fake_podman "--connection podman4ai container inspect --format {{.ImageName}}|{{.Image}} podman4ai-$1" \
+    --stdout "${4:-localhost/podman4ai-base}|$2"
+  fake_podman "--connection podman4ai image inspect --format {{index .Labels \"org.opencontainers.image.created\"}} $2" \
+    --stdout "$created"
+}
+
+# The current Base image's ID.
+base_image_id() {
+  fake_podman "--connection podman4ai image inspect --format {{.Id}} localhost/podman4ai-base" --stdout "$1"
+}
+
 # What hello-world's Sandbox mounts: lines of SECRET=ID.
 hello_world_mounts() {
   fake_podman "--connection podman4ai container inspect --format {{range .Config.Secrets}}{{.Name}}={{.ID}}{{println}}{{end}} podman4ai-hello-world" --stdout "$1"

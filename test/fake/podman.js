@@ -31,12 +31,22 @@ if (env.CONTAINERS_CONF_OVERRIDE) {
     conf = null;
   }
 }
+// For a build, the Containerfile in its context folder (the last argument),
+// captured now because p4a may delete the folder afterwards.
+let containerfile = null;
+if (args.includes("build")) {
+  try {
+    containerfile = fs.readFileSync(path.join(args[args.length - 1], "Containerfile"), "utf8");
+  } catch {
+    containerfile = null;
+  }
+}
 // Secret values arrive on stdin. Read it only for `secret create`, so other
 // calls never wait on a terminal.
 const stdin = args.includes("secret") && args.includes("create") ? fs.readFileSync(0, "utf8") : null;
 // The whole environment too, so tests can check no secret leaked into it.
 const allEnv = { ...process.env };
-fs.appendFileSync(path.join(dir, "calls.jsonl"), JSON.stringify({ args, env, conf, stdin, allEnv }) + "\n");
+fs.appendFileSync(path.join(dir, "calls.jsonl"), JSON.stringify({ args, env, conf, containerfile, stdin, allEnv }) + "\n");
 
 // The last rule whose prefix matches the start of the arguments, joined by
 // spaces and ending at an argument boundary, wins. (So a prefix can include

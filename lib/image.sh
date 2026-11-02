@@ -25,7 +25,7 @@ p4a_image() {
   local command="${1:-}"
   case $command in
     "" | -h | --help | help) p4a_image_usage ;;
-    build) p4a_image_build ;;
+    build) shift; p4a_image_build "$@" ;;
     *) p4a_usage_error "unknown command 'image $command'" "p4a image --help" ;;
   esac
 }
@@ -37,6 +37,11 @@ Usage: p4a image <command>
 Commands:
   build   build the Egress proxy image ($P4A_PROXY_IMAGE), then the
           Base image ($P4A_BASE_IMAGE) through an Egress proxy
+  build <project>
+          build the project's Project image ($(_p4a_project_image '<project>'))
+          from <project>.Containerfile in its Host settings
+          ($(_p4a_projects_dir)), through an Egress proxy loaded
+          with the project's Allowlist. It must build on the Base image.
 EOF
 }
 
@@ -46,10 +51,38 @@ _p4a_build_allowlist() {
 }
 
 p4a_image_build() {
+  [[ ${1:-} != -* ]] || { p4a_image_usage; return; }
+  (( $# <= 1 )) || p4a_usage_error "image build takes at most one project name" "p4a image --help"
+  (( $# == 0 )) || { _p4a_build_project_image "$1"; return; }
   p4a_require_running_sandbox_machine
 
   p4a_sandbox_podman build --network none \
     -t "$P4A_PROXY_IMAGE" "$(p4a_native_path "$P4A_HOME/images/proxy")"
+
+  # No cache and the newest Debian image: every download happens again,
+  # through the proxy, and brings the latest OS patches and Claude Code.
+  local built=true created
+  created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  _p4a_build_through_proxy "$(_p4a_build_allowlist)" --no-cache --pull=newer \
+    -t "$P4A_BASE_IMAGE" "$(p4a_native_path "$P4A_HOME/images/base")" \
+    || built=false
+
+  $built || p4a_die "the Base image build failed" \
+    "see the build output above; if it needed a refused domain, and that domain should be allowed, add it to $P4A_HOME/share/build-allowlist"
+
+  local version
+  version="$(_p4a_label_base_image "$created")" || exit 1
+  echo "Built $P4A_PROXY_IMAGE and $P4A_BASE_IMAGE (Claude Code $version, built $created)."
+}
+
+# _p4a_build_through_proxy ALLOWLIST BUILD_OPTION... CONTEXT
+# Run podman build with these options on the build network, whose only way
+# out is an Egress proxy loaded with ALLOWLIST (domains separated by
+# spaces). Then report what the proxy allowed and refused, and return the
+# build's exit status.
+_p4a_build_through_proxy() {
+  local allowlist=$1 context="${!#}"
+  local options=("${@:2:$#-2}")
 
   # Start from a fresh build network, so its settings are always these.
   # This also removes the previous build's proxy and namespace holder.
@@ -60,7 +93,7 @@ p4a_image_build() {
 
   p4a_sandbox_podman run -d --name "$P4A_BUILD_PROXY" \
     --network podman --network "$P4A_BUILD_NETWORK:ip=$P4A_BUILD_PROXY_IP" \
-    -e "P4A_ALLOWLIST=$(_p4a_build_allowlist)" \
+    -e "P4A_ALLOWLIST=$allowlist" \
     "$P4A_PROXY_IMAGE" >/dev/null
   _p4a_wait_for_build_proxy
   p4a_sandbox_podman run -d --name "$P4A_BUILD_NETNS_HOLDER" \
@@ -73,28 +106,18 @@ p4a_image_build() {
   for var in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do
     proxy_args+=(--build-arg "$var=$P4A_BUILD_PROXY_URL")
   done
-  # No cache and the newest Debian image: every download happens again,
-  # through the proxy, and brings the latest OS patches and Claude Code.
-  local built=true created
-  created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  p4a_sandbox_podman build --no-cache --pull=newer \
+  local status=0
+  p4a_sandbox_podman build "${options[@]}" \
     --network "ns:$netns" \
     --add-host "egress-proxy:$P4A_BUILD_PROXY_IP" \
     "${proxy_args[@]}" \
-    -t "$P4A_BASE_IMAGE" "$(p4a_native_path "$P4A_HOME/images/base")" \
-    || built=false
+    "$context" || status=$?
 
   # Keep the stopped proxy until the next build, so its log can be read.
   p4a_sandbox_podman rm -f "$P4A_BUILD_NETNS_HOLDER" >/dev/null
   p4a_sandbox_podman stop -t 2 "$P4A_BUILD_PROXY" >/dev/null
   _p4a_report_build_domains
-
-  $built || p4a_die "the Base image build failed" \
-    "see the build output above; if it needed a refused domain, and that domain should be allowed, add it to $P4A_HOME/share/build-allowlist"
-
-  local version
-  version="$(_p4a_label_base_image "$created")" || exit 1
-  echo "Built $P4A_PROXY_IMAGE and $P4A_BASE_IMAGE (Claude Code $version, built $created)."
+  return "$status"
 }
 
 # The Base image's labels: when it was built (the OCI standard label) and
@@ -162,4 +185,180 @@ _p4a_logged_domains() {
   done
   (( ${#domains[@]} )) || return 0
   printf '%s\n' "${domains[@]}" | sort -u | paste -sd ' ' -
+}
+
+# Project images (#14). A project that needs extra toolchains gets an image
+# built on the Base image from a Containerfile in its Host settings, which
+# no Agent can edit (ADR 0002).
+
+# The name of PROJECT's Project image.
+_p4a_project_image() {
+  echo "localhost/podman4ai-project-$1"
+}
+
+# Where PROJECT's Containerfile is: in its Host settings, never its repo.
+_p4a_containerfile() {
+  echo "$(_p4a_projects_dir)/$1.Containerfile"
+}
+
+# Succeed if PROJECT has a Containerfile, so its Sandbox uses a Project image.
+_p4a_has_containerfile() {
+  [[ -f "$(_p4a_containerfile "$1")" ]]
+}
+
+# The label naming the Base image (by ID) a Project image was built on, so
+# p4a can tell when the Base image has been rebuilt since.
+P4A_BASE_ID_LABEL=podman4ai.base-image-id
+
+# Build PROJECT's Project image from the Containerfile in its Host settings,
+# through an Egress proxy loaded with the project's effective Allowlist.
+_p4a_build_project_image() {
+  local project=$1 containerfile image
+  _p4a_require_project "$project"
+  containerfile="$(_p4a_containerfile "$project")"
+  image="$(_p4a_project_image "$project")"
+  _p4a_has_containerfile "$project" \
+    || p4a_die "$project has no Project image: there's no $containerfile" \
+      "write a Containerfile there that starts with 'FROM $P4A_BASE_IMAGE', then run 'p4a image build $project' again"
+  _p4a_require_safe_containerfile "$project" "$containerfile"
+  p4a_require_running_sandbox_machine
+  local needed
+  for needed in "$P4A_PROXY_IMAGE" "$P4A_BASE_IMAGE"; do
+    _p4a_part_exists image "$needed" \
+      || p4a_die "the image $needed isn't built, and a Project image build needs it" \
+        "build it with 'p4a image build', then run 'p4a image build $project' again"
+  done
+
+  # The build sees only the Containerfile: an empty folder with a copy of it.
+  local context
+  context="$(mktemp -d)"
+  # shellcheck disable=SC2064 # expanded now: the folder is this one
+  trap "rm -rf '$context'" EXIT
+  cp "$containerfile" "$context/Containerfile"
+
+  local built=true created allowlist base_id
+  created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  allowlist="$(_p4a_effective_allowlist "$project" | paste -sd ' ' -)"
+  base_id="$(_p4a_base_image_id)"
+  _p4a_build_through_proxy "$allowlist" --no-cache --pull=never \
+    --label "$P4A_CREATED_LABEL=$created" \
+    --label "$P4A_BASE_ID_LABEL=$base_id" \
+    -t "$image" "$(p4a_native_path "$context")" \
+    || built=false
+
+  $built || p4a_die "the Project image build for $project failed" \
+    "see the build output above; if it needed a refused domain that $project should reach, allow it with 'p4a allow $project <domain>', then run 'p4a image build $project' again"
+  echo "Built $image (built $created)."
+  echo "To move $project's Sandbox onto it, run: p4a recreate $project"
+}
+
+# _p4a_require_safe_containerfile PROJECT CONTAINERFILE
+# Exit, saying why, unless CONTAINERFILE builds on the Base image and its
+# only way out is the build's Egress proxy. So every build stage starts from
+# the Base image or an earlier stage, and these are refused: ADD (buildah
+# downloads its URLs itself, around the proxy), RUN --network or --security,
+# COPY --from or RUN --mount from anything but an earlier stage, ONBUILD,
+# and an escape directive (it changes how lines join). Anything named by a
+# variable is refused too, since it can't be known here. The file is read
+# as the build reads it: comment lines are dropped even mid-instruction, a
+# backslash at the end of a line continues it, and heredoc bodies are text.
+_p4a_require_safe_containerfile() {
+  local project=$1 file=$2 line n=0 start=0 joined="" heredoc="" words=()
+  local stages=" " stage_count=0 instruction word source
+  while IFS= read -r line || [[ -n $line ]]; do
+    line="${line%$'\r'}"
+    n=$(( n + 1 ))
+    if [[ -n $heredoc ]]; then
+      # <<- lets the closing word be indented.
+      [[ "${line#"${line%%[![:space:]]*}"}" == "$heredoc" ]] && heredoc=""
+      continue
+    fi
+    if [[ $line =~ ^[[:space:]]*#[[:space:]]*escape[[:space:]]*= ]]; then
+      _p4a_containerfile_refused "$project" "$n" "has an escape directive, which changes how p4a and the build read it" \
+        "remove the escape directive line"
+    fi
+    [[ $line =~ ^[[:space:]]*# ]] && continue
+    [[ -n $joined ]] || start=$n
+    if [[ $line =~ \\[[:space:]]*$ ]]; then
+      joined+="${line%\\*} "
+      continue
+    fi
+    read -ra words <<< "$joined$line"
+    joined=""
+    (( ${#words[@]} )) || continue
+    for word in "${words[@]}"; do
+      [[ $word =~ ^\<\<-?[\"\']?([A-Za-z_][A-Za-z0-9_]*)[\"\']? ]] && heredoc="${BASH_REMATCH[1]}"
+    done
+    instruction="${words[0]^^}"
+    words=("${words[@]:1}")
+    case $instruction in
+      FROM)
+        while [[ ${words[0]:-} == --* ]]; do words=("${words[@]:1}"); done
+        if [[ ${words[0]:-} != "$P4A_BASE_IMAGE" && ${words[0]:-} != "$P4A_BASE_IMAGE:latest" ]] \
+            && ! _p4a_is_stage "${words[0]:-}" "$stages" "$stage_count"; then
+          _p4a_containerfile_refused "$project" "$start" "starts a build stage from '${words[0]:-(nothing)}', but a Project image must build on the Base image" \
+            "start every stage with 'FROM $P4A_BASE_IMAGE' (or an earlier stage's name)"
+        fi
+        stage_count=$(( stage_count + 1 ))
+        [[ ${words[1]:-} =~ ^[Aa][Ss]$ && -n ${words[2]:-} ]] && stages+="${words[2],,} "
+        ;;
+      ADD)
+        _p4a_containerfile_refused "$project" "$start" "uses ADD, which can download around the Egress proxy" \
+          "download in a RUN step instead (its downloads go through the Egress proxy), or COPY --from an earlier stage"
+        ;;
+      ONBUILD)
+        _p4a_containerfile_refused "$project" "$start" "uses ONBUILD, whose steps would run in a later build without these Egress proxy checks" \
+          "remove the ONBUILD line"
+        ;;
+      COPY | RUN)
+        for word in "${words[@]}"; do
+          [[ $word == --* ]] || break
+          source=""
+          case $word in
+            --network* | --security*)
+              _p4a_containerfile_refused "$project" "$start" "uses $instruction ${word%%=*}, which could take a step around the Egress proxy" \
+                "remove ${word%%=*}" ;;
+            --from=*) source="${word#--from=}" ;;
+            --mount=*)
+              [[ ,${word#--mount=}, =~ ,from=([^,]*), ]] && source="${BASH_REMATCH[1]}" ;;
+          esac
+          [[ -z $source ]] || _p4a_is_stage "$source" "$stages" "$stage_count" \
+            || _p4a_containerfile_refused "$project" "$start" "uses files from '$source', but a Project image may use only its own earlier build stages, so nothing comes from another image around the Egress proxy" \
+              "build what's needed in an earlier stage (FROM $P4A_BASE_IMAGE AS <name>) and use --from=<name>"
+        done
+        ;;
+    esac
+  done < "$file"
+  [[ -z $heredoc ]] \
+    || _p4a_containerfile_refused "$project" "$n" "has a heredoc that never ends (no line '$heredoc')" \
+      "end the heredoc with a line holding just $heredoc"
+  (( stage_count )) \
+    || _p4a_containerfile_refused "$project" "$n" "has no FROM line, but a Project image must build on the Base image" \
+      "start it with 'FROM $P4A_BASE_IMAGE'"
+}
+
+# _p4a_is_stage NAME STAGES COUNT
+# Succeed if NAME is one of the earlier build stages: a name in STAGES
+# (" name name "), or a stage number below COUNT.
+_p4a_is_stage() {
+  [[ -n $1 && $2 == *" ${1,,} "* ]] || [[ $1 =~ ^[0-9]+$ && $1 -lt $3 ]]
+}
+
+# _p4a_containerfile_refused PROJECT LINE WHAT FIX
+# Exit: PROJECT's Containerfile, at line LINE, WHAT.
+_p4a_containerfile_refused() {
+  p4a_die "the Containerfile for $1 (line $2) $3" "$4 in $(_p4a_containerfile "$1"), then run 'p4a image build $1' again"
+}
+
+# Print the image PROJECT's Sandbox is created from: its Project image if
+# it has a Containerfile, otherwise the Base image. Exit, saying how to
+# build it, if its Project image isn't built.
+_p4a_sandbox_image() {
+  local project=$1 image
+  _p4a_has_containerfile "$project" || { echo "$P4A_BASE_IMAGE"; return 0; }
+  image="$(_p4a_project_image "$project")"
+  _p4a_part_exists image "$image" \
+    || p4a_die "$project has a Containerfile, but its Project image $image isn't built" \
+      "build it with 'p4a image build $project', then try again"
+  echo "$image"
 }
