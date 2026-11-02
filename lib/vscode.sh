@@ -52,8 +52,13 @@ p4a_code() {
 
   local source_dir hex
   source_dir="$(_p4a_source_dir "$project")"
-  hex="$(printf '{"containerName":"/%s"}' "$(_p4a_sandbox_name "$project")" | od -An -tx1 | tr -d ' \n')"
-  env -u SSH_AUTH_SOCK MSYS_NO_PATHCONV=1 \
+  # The plain container name: Podman finds none named "/name", the Docker
+  # form VS Code's own attach menu uses.
+  hex="$(printf '{"containerName":"%s"}' "$(_p4a_sandbox_name "$project")" | od -An -tx1 | tr -d ' \n')"
+  # No ssh-agent, and no password prompt program (Git Bash sets
+  # SSH_ASKPASS), so a credential request from the Sandbox can't show a
+  # prompt on Windows either.
+  env -u SSH_AUTH_SOCK -u SSH_ASKPASS -u GIT_ASKPASS MSYS_NO_PATHCONV=1 \
     CONTAINER_CONNECTION="$P4A_MACHINE" CONTAINERS_MACHINE_PROVIDER="$P4A_PROVIDER" \
     GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$(p4a_native_path "$no_gitconfig")" \
     code --new-window --folder-uri "vscode-remote://attached-container+$hex$source_dir"

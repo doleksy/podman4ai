@@ -9,7 +9,7 @@ set -euo pipefail
 dir=${FAKE_CODE_DIR:?fake code: FAKE_CODE_DIR is not set}
 {
   printf '%s\n' "$@"
-  for var in CONTAINER_CONNECTION CONTAINERS_MACHINE_PROVIDER GIT_CONFIG_NOSYSTEM GIT_CONFIG_GLOBAL SSH_AUTH_SOCK; do
+  for var in CONTAINER_CONNECTION CONTAINERS_MACHINE_PROVIDER GIT_CONFIG_NOSYSTEM GIT_CONFIG_GLOBAL SSH_AUTH_SOCK SSH_ASKPASS GIT_ASKPASS; do
     printf 'env %s=%s\n' "$var" "${!var-<unset>}"
   done
   if [[ -n ${GIT_CONFIG_GLOBAL:-} ]]; then

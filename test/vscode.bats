@@ -36,20 +36,27 @@ hello_world_for_code() {
   run p4a code hello-world
   [ "$status" -eq 0 ]
   local hex
-  hex="$(printf '%s' '{"containerName":"/podman4ai-hello-world"}' | od -An -tx1 | tr -d ' \n')"
+  # The plain name: Podman finds no container named "/podman4ai-hello-world"
+  # (Docker's form, which VS Code's own attach menu uses).
+  hex="$(printf '%s' '{"containerName":"podman4ai-hello-world"}' | od -An -tx1 | tr -d ' \n')"
   code_calls | has_line "--folder-uri"
   code_calls | has_line "vscode-remote://attached-container+$hex/workspace/hello-world"
   # VS Code's podman reaches the Sandbox machine, not the default one.
   code_calls | has_line "env CONTAINER_CONNECTION=podman4ai"
 }
 
-@test "code opens VS Code with no Windows git config or ssh-agent, so the Sandbox can't get Windows credentials through it" {
+@test "code opens VS Code with no Windows git config, ssh-agent or password prompt, so the Sandbox can't get Windows credentials through it" {
   hello_world_for_code
-  SSH_AUTH_SOCK=/tmp/ssh-agent.sock run p4a code hello-world
+  # Git Bash sets SSH_ASKPASS: with it, a credential request from the
+  # Sandbox would pop up a password prompt on Windows.
+  SSH_AUTH_SOCK=/tmp/ssh-agent.sock SSH_ASKPASS=/c/git-askpass.exe GIT_ASKPASS=/c/git-askpass.exe \
+    run p4a code hello-world
   [ "$status" -eq 0 ]
   code_calls | has_line "env GIT_CONFIG_NOSYSTEM=1"
   code_calls | has_line "git config global: empty file"
   code_calls | has_line "env SSH_AUTH_SOCK=<unset>"
+  code_calls | has_line "env SSH_ASKPASS=<unset>"
+  code_calls | has_line "env GIT_ASKPASS=<unset>"
 }
 
 @test "code refuses, naming them, until VS Code has the settings that keep Windows credentials out" {
