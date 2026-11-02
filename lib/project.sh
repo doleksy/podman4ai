@@ -113,6 +113,12 @@ p4a_new() {
   [[ ! -e $additions ]] \
     || p4a_die "can't create the project $project: $additions is left from an earlier project of that name" \
       "if its Allowlist additions aren't needed, delete it, then run 'p4a new $repo' again"
+  # So would a Containerfile: the new project would get its Project image.
+  local containerfile
+  containerfile="$(_p4a_containerfile "$project")"
+  [[ ! -e $containerfile ]] \
+    || p4a_die "can't create the project $project: $containerfile is left from an earlier project of that name" \
+      "if its Project image isn't needed, delete it, then run 'p4a new $repo' again"
 
   p4a_require_running_sandbox_machine
   p4a_require_agent_token
@@ -282,6 +288,8 @@ _p4a_create_sandbox() {
 
   local limits=()
   _p4a_sandbox_limits "$project" limits
+  local image
+  image="$(_p4a_sandbox_image "$project")" || return 1
 
   p4a_sandbox_podman create --name "$(_p4a_sandbox_name "$project")" \
     "${P4A_SANDBOX_HARDENING[@]}" \
@@ -291,7 +299,7 @@ _p4a_create_sandbox() {
     --volume "$(_p4a_project_volume_name "$project"):$P4A_PROJECT_VOLUME_PATH" \
     --volume "$(_p4a_claude_volume_name "$project"):$P4A_CLAUDE_CONFIG_PATH" \
     "${secrets[@]}" \
-    --init "$P4A_BASE_IMAGE" sleep infinity >/dev/null
+    --init "$image" sleep infinity >/dev/null
 }
 
 # _p4a_sandbox_limits PROJECT ARRAY
@@ -314,12 +322,14 @@ pids pids-limit $P4A_SANDBOX_PIDS ^[1-9][0-9]*$ 8192
 EOF
 }
 
-# Exit, naming the setting, if one of PROJECT's limits isn't a value p4a
-# can use. Called before a Sandbox is removed to be recreated.
-_p4a_check_sandbox_limits() {
+# Exit, saying why, if PROJECT's Sandbox couldn't be created now: one of
+# its limits isn't a value p4a can use, or its Project image isn't built.
+# Called before a Sandbox is removed to be recreated.
+_p4a_check_sandbox_can_be_created() {
   # shellcheck disable=SC2034 # only checked here; _p4a_create_sandbox uses them
-  local limits=()
+  local limits=() image
   _p4a_sandbox_limits "$1" limits
+  image="$(_p4a_sandbox_image "$1")"
 }
 
 # Recreate PROJECT's Sandbox if it doesn't mount the current tokens.
@@ -343,7 +353,7 @@ _p4a_refresh_sandbox_tokens() {
     p4a_note "the Sandbox for $project is running with old tokens. To give it the current ones, run 'p4a stop $project', then 'p4a start $project'"
     return 0
   fi
-  _p4a_check_sandbox_limits "$project"
+  _p4a_check_sandbox_can_be_created "$project"
   p4a_note "Recreating the Sandbox for $project to give it the current tokens. Its source and Claude config are kept; anything else changed inside it is lost."
   p4a_sandbox_podman rm "$sandbox" >/dev/null
   _p4a_create_sandbox "$project" \

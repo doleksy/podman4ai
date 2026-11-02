@@ -34,6 +34,8 @@ p4a machine start    start it (stop any other running Podman machine first)
 p4a machine stop     stop it
 p4a machine status   show whether it exists and is running
 p4a image build      build the Egress proxy image, then the Base image through it
+p4a image build <project>
+                     build a project's Project image, through an Egress proxy with its Allowlist
 p4a secret set agent-token
                      store the Agent token (from 'claude setup-token'), from a hidden prompt
 p4a secret set repo-token <project>
@@ -92,7 +94,7 @@ Every start runs a self-check from inside the Sandbox: `github.com` must be reac
 
 If `p4a new` fails partway, it removes what it created, so you can run it again. It never reuses or removes a volume, network or container that already had the project's name.
 
-A project's Host settings are in `%APPDATA%\podman4ai\projects\` (or `$P4A_CONFIG_DIR/projects`): `<project>.conf`, and its Allowlist additions in `<project>.allowlist`. They're outside every repo and every Sandbox, so no Agent can change them.
+A project's Host settings are in `%APPDATA%\podman4ai\projects\` (or `$P4A_CONFIG_DIR/projects`): `<project>.conf`, its Allowlist additions in `<project>.allowlist`, and its [Project image](#project-images)'s `<project>.Containerfile` if it has one. They're outside every repo and every Sandbox, so no Agent can change them.
 
 ### Recreating, removing and checking projects
 
@@ -102,7 +104,7 @@ A Sandbox and its Egress proxy are disposable: what's worth keeping is in the pr
 - `p4a rm hello-world` stops the project and removes its Sandbox, Egress proxy and network. Then it lists the volumes and what deleting them loses (the source, including uncommitted and unpushed work; Claude's settings, hooks and memory), and deletes them and the project's Host settings only if you type the project's name. Anything else, or no answer, keeps them: `p4a recreate hello-world` brings the project back with them, and `p4a rm hello-world` again deletes them. The project's Repo token, if any, is kept for a later `p4a new` of the same repo.
 - `p4a list` shows every project, running, stopped or removed (by `p4a rm`, with its volumes kept), with its Sandbox's image and how old that image is. `p4a status hello-world` shows the same for one project, with the image's build date and the project's limits.
 
-Both nudge you when a Sandbox's image is more than **14 days** old (`P4A_IMAGE_MAX_AGE_DAYS` in `lib/lifecycle.sh`), or its age is unknown: rebuild the images with `p4a image build` for the latest OS patches and Claude Code, then `p4a recreate`. The age is the build date `p4a image build` labels the Base image with. They also say when a newer Base image is already built than the one a Sandbox runs, so it only needs `p4a recreate`.
+Both nudge you when a Sandbox's image is more than **14 days** old (`P4A_IMAGE_MAX_AGE_DAYS` in `lib/lifecycle.sh`), or its age is unknown: rebuild the images with `p4a image build` for the latest OS patches and Claude Code, then `p4a recreate`. The age is the build date `p4a image build` labels the Base image (or a Project image) with. They also say when a newer image is already built than the one a Sandbox runs (its Project image if it has one, otherwise the Base image), so it only needs `p4a recreate`. A project with a [Project image](#project-images) shows it in both, and `p4a status` names its Containerfile.
 
 ### Limits
 
@@ -181,6 +183,33 @@ To change the baseline:
 
 The Base image build has no open internet. Its only way out is an Egress proxy that allows just the domains in [`share/build-allowlist`](share/build-allowlist) (ADR 0003, ADR 0005). Afterwards `p4a` lists the domains the proxy allowed and refused. The full log stays in the stopped proxy container until the next build: `p4a podman logs podman4ai-build-proxy`. If a build fails because a domain was refused, and that domain should be allowed, add it to `share/build-allowlist`.
 
+#### Project images
+
+A project that needs a toolchain the Base image lacks gets a Project image: an image built on the Base image from a Containerfile in the project's Host settings, `<project>.Containerfile` next to its `<project>.conf`. It's never in the project's repo, so an Agent can't change its own image (ADR 0002). For example, Go for `hello-world`, in `%APPDATA%\podman4ai\projects\hello-world.Containerfile`:
+
+```dockerfile
+FROM localhost/podman4ai-base
+USER root
+RUN v="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)" \
+ && curl -fsSL "https://go.dev/dl/$v.linux-amd64.tar.gz" | tar -C /usr/local -xz \
+ && ln -s /usr/local/go/bin/go /usr/local/go/bin/gofmt /usr/local/bin/
+USER agent
+```
+
+Then:
+
+```
+p4a image build hello-world   # builds localhost/podman4ai-project-hello-world
+p4a recreate hello-world      # moves the Sandbox onto it
+```
+
+- Every build stage must start `FROM localhost/podman4ai-base` (or from an earlier stage's name). `p4a` refuses anything else, including a `FROM` that names a variable, and the build never pulls an image, so nothing reaches a registry except through the proxy. End with `USER agent`, so the Sandbox doesn't run as root.
+- The build sees only the Containerfile, so `COPY` and `ADD` of local files don't work: download what's needed in a `RUN` step instead.
+- Its only way out is an Egress proxy loaded with the project's effective Allowlist (the default plus the project's own additions), not the build Allowlist. When a download is refused, `p4a` lists the refused domain. Allow it with `p4a allow hello-world <domain>` (which lets the Sandbox reach it too) and build again. The Go example needs `go.dev` and `dl.google.com`.
+- Like the Base image, it's built from scratch each time, labelled with its build date, and shown with its age in `p4a list` and `p4a status`. It starts from the Base image as it is at that moment, so after `p4a image build`, run `p4a image build hello-world` too, then `p4a recreate hello-world`.
+- Once a project has a Containerfile, new and recreated Sandboxes use its Project image, and `p4a recreate` (or `p4a start` when it recreates a Sandbox) stops, removing nothing, until that image is built. Delete the Containerfile to go back to the Base image at the next `p4a recreate`. Projects without one keep using the Base image.
+- `p4a rm`, once you confirm deleting the project's Host settings, deletes its Containerfile and its Project image too.
+
 `p4a` selects the Hyper-V provider and the Sandbox machine for its own Podman calls only. Plain `podman` in other shells keeps using its default machine.
 
 ## Running the unit tests
@@ -216,6 +245,7 @@ These run against the real Sandbox machine, which must be running, and take seve
 ```bash
 test/host/isolation.sh     # the isolation suite: one PASS/FAIL line per security property
 test/host/image-build.sh   # bad build step refused, build log clean, no sudo, non-root
+test/host/project-image.sh # Project image refused until p4a allow, then recreate puts the Sandbox on it
 test/host/secrets.sh       # each Sandbox sees only its own Repo token, no token in podman inspect
 test/host/base-image.sh    # every Base image tool runs as agent, user installs survive a restart, labels
 ```

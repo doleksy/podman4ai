@@ -57,6 +57,10 @@ Commands:
   p4a machine <command>   create, start, stop or check the Sandbox machine
                           (see: p4a machine --help)
   p4a image build         build the Egress proxy and Base images
+  p4a image build <project>
+                          build a project's Project image from the
+                          Containerfile in its Host settings, through an
+                          Egress proxy with the project's Allowlist
   p4a secret set agent-token
                           store the Agent token (from 'claude setup-token')
   p4a secret set repo-token <project>

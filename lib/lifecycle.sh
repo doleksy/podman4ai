@@ -37,7 +37,7 @@ p4a_recreate() {
 # stopped.
 _p4a_recreate_project() {
   local project=$1 state
-  _p4a_check_sandbox_limits "$project"
+  _p4a_check_sandbox_can_be_created "$project"
   state="$(_p4a_sandbox_state "$project")"
   _p4a_remove_containers "$project"
   _p4a_part_exists network "$(_p4a_network_name "$project")" || _p4a_create_network "$project"
@@ -131,7 +131,9 @@ EOF
   p4a_sandbox_podman volume rm "$project_volume" "$claude_volume" >/dev/null \
     || p4a_die "couldn't delete the volumes of $project (see podman's message above); its Host settings are kept" \
       "run 'p4a rm $project' again"
-  rm -f "$(_p4a_projects_dir)/$project.conf" "$(_p4a_additions_file "$project")"
+  p4a_sandbox_podman image rm --ignore "$(_p4a_project_image "$project")" >/dev/null \
+    || p4a_note "couldn't delete the Project image $(_p4a_project_image "$project"); delete it later with 'p4a podman image rm $(_p4a_project_image "$project")'"
+  rm -f "$(_p4a_projects_dir)/$project.conf" "$(_p4a_additions_file "$project")" "$(_p4a_containerfile "$project")"
   echo "Removed the project $project, with its volumes and Host settings."
 }
 
@@ -142,17 +144,26 @@ P4A_IMAGE_MAX_AGE_DAYS=14
 # _p4a_read_project_status PROJECT BASE_ID
 # Set P4A_STATE (running, stopped or removed), P4A_IMAGE (the Sandbox's
 # image name), P4A_IMAGE_BUILT (its build date, or empty if unknown),
-# P4A_IMAGE_DAYS (its age in whole days, or empty) and P4A_IMAGE_CURRENT
-# (true if it's the current Base image, BASE_ID).
+# P4A_IMAGE_DAYS (its age in whole days, or empty), P4A_HAS_PROJECT_IMAGE
+# (true if the project has a Containerfile), P4A_PROJECT_IMAGE_BUILT (false
+# if it has one but its Project image isn't built) and P4A_IMAGE_CURRENT
+# (true unless a newer image for it is built: its Project image if it has
+# a Containerfile, otherwise the Base image, BASE_ID).
 _p4a_read_project_status() {
-  local project=$1 base_id=$2 info image_id
+  local project=$1 want_id=$2 info image_id
   P4A_STATE="$(_p4a_sandbox_state "$project")"
   P4A_IMAGE="" P4A_IMAGE_BUILT="" P4A_IMAGE_DAYS="" P4A_IMAGE_CURRENT=true
+  P4A_HAS_PROJECT_IMAGE=false P4A_PROJECT_IMAGE_BUILT=true
+  if [[ -f "$(_p4a_containerfile "$project")" ]]; then
+    P4A_HAS_PROJECT_IMAGE=true
+    want_id="$(p4a_sandbox_podman image inspect --format '{{.Id}}' "$(_p4a_project_image "$project")" 2>/dev/null)" \
+      || { want_id=""; P4A_PROJECT_IMAGE_BUILT=false; }
+  fi
   [[ $P4A_STATE != removed ]] || return 0
   info="$(p4a_sandbox_podman container inspect --format '{{.ImageName}}|{{.Image}}' "$(_p4a_sandbox_name "$project")")"
   P4A_IMAGE="${info%%|*}" image_id="${info#*|}"
-  # With no Base image built, there's nothing newer to move to.
-  [[ -z $base_id || $image_id == "$base_id" ]] || P4A_IMAGE_CURRENT=false
+  # With the image it should use not built, there's nothing newer to move to.
+  [[ -z $want_id || $image_id == "$want_id" ]] || P4A_IMAGE_CURRENT=false
   local created
   created="$(p4a_sandbox_podman image inspect \
     --format "{{index .Labels \"$P4A_CREATED_LABEL\"}}" "$image_id" 2>/dev/null)" || created=""
@@ -198,19 +209,23 @@ p4a_list() {
     echo "There are no projects yet. Create one with: p4a new <owner/repo>"
     return 0
   fi
-  local base_id project old=() stale=() removed=()
+  local base_id project old=() old_project_images=false stale=() unbuilt=() removed=()
   base_id="$(_p4a_base_image_id)"
   printf '%-24s %-8s %-28s %s\n' PROJECT STATE IMAGE AGE
   while read -r project; do
     _p4a_read_project_status "$project" "$base_id"
+    [[ $P4A_PROJECT_IMAGE_BUILT == true ]] || unbuilt+=("$project")
     if [[ $P4A_STATE == removed ]]; then
       printf '%-24s %-8s %-28s %s\n' "$project" removed - -
       removed+=("$project")
       continue
     fi
     printf '%-24s %-8s %-28s %s\n' "$project" "$P4A_STATE" "$P4A_IMAGE" "$(_p4a_image_age)"
-    if _p4a_image_is_old; then
+    if [[ $P4A_PROJECT_IMAGE_BUILT == false ]]; then
+      :
+    elif _p4a_image_is_old; then
       old+=("$project")
+      [[ $P4A_HAS_PROJECT_IMAGE == false ]] || old_project_images=true
     elif [[ $P4A_IMAGE_CURRENT == false ]]; then
       stale+=("$project")
     fi
@@ -220,12 +235,19 @@ p4a_list() {
     echo
     echo "The images of ${old[*]} are over $P4A_IMAGE_MAX_AGE_DAYS days old (or of unknown age)."
     echo "For the latest OS patches and Claude Code, run 'p4a image build', then 'p4a recreate --all'."
+    if $old_project_images; then
+      echo "Rebuild each Project image among them with 'p4a image build <project>' before recreating."
+    fi
   fi
   if (( ${#stale[@]} )); then
     echo
-    echo "A newer Base image than ${stale[*]} use is built. To use it, run 'p4a recreate <project>' for each."
+    echo "A newer image is built for ${stale[*]}. To use it, run 'p4a recreate <project>' for each."
   fi
   local p
+  for p in "${unbuilt[@]}"; do
+    echo
+    echo "$p has a Containerfile, but its Project image isn't built. Build it with 'p4a image build $p', then run 'p4a recreate $p'."
+  done
   for p in "${removed[@]}"; do
     echo
     echo "$p's Sandbox was removed and its volumes kept. Bring it back with: p4a recreate $p"
@@ -254,13 +276,23 @@ p4a_status() {
     return 0
   fi
   echo "  image:  $P4A_IMAGE, built ${P4A_IMAGE_BUILT:-on an unknown date} ($(_p4a_image_age) old)"
+  if $P4A_HAS_PROJECT_IMAGE; then
+    echo "  It has a Project image, from $(_p4a_containerfile "$project")"
+  fi
   echo "  limits: $memory memory, $cpus CPUs, $pids processes (set in $(_p4a_projects_dir)/$project.conf; changes apply at 'p4a recreate $project')"
-  if _p4a_image_is_old; then
+  if [[ $P4A_PROJECT_IMAGE_BUILT == false ]]; then
+    echo
+    echo "Its Project image isn't built. Build it with 'p4a image build $project', then run 'p4a recreate $project'."
+  elif _p4a_image_is_old; then
+    local rebuild="'p4a image build'"
+    $P4A_HAS_PROJECT_IMAGE && rebuild+=", then 'p4a image build $project'"
     echo
     echo "Its image is over $P4A_IMAGE_MAX_AGE_DAYS days old (or of unknown age). For the latest OS patches and"
-    echo "Claude Code, run 'p4a image build', then 'p4a recreate $project'."
+    echo "Claude Code, run $rebuild, then 'p4a recreate $project'."
   elif [[ $P4A_IMAGE_CURRENT == false ]]; then
+    local newer=Base
+    $P4A_HAS_PROJECT_IMAGE && newer=Project
     echo
-    echo "A newer Base image is built. To use it, run 'p4a recreate $project'."
+    echo "A newer $newer image is built. To use it, run 'p4a recreate $project'."
   fi
 }
