@@ -225,14 +225,26 @@ _p4a_create_network() {
     --subnet "$subnet" "$(_p4a_network_name "$1")" >/dev/null
 }
 
-# Print the address of PROJECT's Egress proxy on the project's network.
-_p4a_proxy_ip() {
+# _p4a_project_ip PROJECT HOST
+# Print the address HOST (a number) on PROJECT's network.
+_p4a_project_ip() {
   local subnet
   subnet="$(_p4a_project_setting "$1" subnet)" \
     || p4a_die "the settings for $1 don't say which network address range it uses" \
       "check $(_p4a_projects_dir)/$1.conf has a line 'subnet=10.89.N.0/24'"
-  echo "${subnet%.0/24}.2"
+  echo "${subnet%.0/24}.$2"
 }
+
+# Print the address of PROJECT's Egress proxy on the project's network.
+_p4a_proxy_ip() { _p4a_project_ip "$1" 2; }
+
+# Print the fixed address of PROJECT's Sandbox on the project's network,
+# where its port forwarders reach it (lib/port.sh).
+_p4a_sandbox_ip() { _p4a_project_ip "$1" 3; }
+
+# The label a Sandbox with a fixed address carries, with the address.
+# Sandboxes created before p4a gave them one don't have it.
+P4A_ADDRESS_LABEL=podman4ai.address
 
 # Create PROJECT's Egress proxy container: on the project's network at its
 # fixed address, and on Podman's default network to reach out. It reads its
@@ -274,8 +286,9 @@ _p4a_refresh_proxy() {
 # and volumes, with the current tokens. Used by p4a new, and by p4a start
 # to recreate it.
 _p4a_create_sandbox() {
-  local project=$1 proxy_ip
+  local project=$1 proxy_ip sandbox_ip
   proxy_ip="$(_p4a_proxy_ip "$project")"
+  sandbox_ip="$(_p4a_sandbox_ip "$project")"
 
   local identity=()
   _p4a_git_identity identity
@@ -298,7 +311,8 @@ _p4a_create_sandbox() {
   p4a_sandbox_podman create --name "$(_p4a_sandbox_name "$project")" \
     "${P4A_SANDBOX_HARDENING[@]}" \
     "${limits[@]}" \
-    --network "$(_p4a_network_name "$project")" --dns=none --add-host "$P4A_PROXY_HOST:$proxy_ip" \
+    --network "$(_p4a_network_name "$project"):ip=$sandbox_ip" --label "$P4A_ADDRESS_LABEL=$sandbox_ip" \
+    --dns=none --add-host "$P4A_PROXY_HOST:$proxy_ip" \
     "${proxy_env[@]}" "${identity[@]}" --env "P4A_PROJECT=$project" \
     --volume "$(_p4a_project_volume_name "$project"):$P4A_PROJECT_VOLUME_PATH" \
     --volume "$(_p4a_claude_volume_name "$project"):$P4A_CLAUDE_CONFIG_PATH" \
@@ -431,12 +445,15 @@ _p4a_start_project() {
   fi
   p4a_sandbox_podman start "$(_p4a_sandbox_name "$project")" >/dev/null
   _p4a_self_check "$project"
+  _p4a_start_forwarders "$project"
 }
 
-# Stop PROJECT's Sandbox and its Egress proxy together.
+# Stop PROJECT's Sandbox, its Egress proxy and its port forwarders together.
 _p4a_stop_project() {
-  local project=$1
-  p4a_sandbox_podman stop "$(_p4a_sandbox_name "$project")" "$(_p4a_proxy_name "$project")" >/dev/null
+  local project=$1 forwarders=()
+  mapfile -t forwarders < <(_p4a_project_forwarders "$project")
+  p4a_sandbox_podman stop "$(_p4a_sandbox_name "$project")" "$(_p4a_proxy_name "$project")" \
+    "${forwarders[@]}" >/dev/null
 }
 
 # The Sandbox's startup check (ADR 0003): an allowlisted domain is reachable

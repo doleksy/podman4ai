@@ -1,0 +1,88 @@
+# shellcheck shell=bash
+# p4a code: VS Code attached to a project's Sandbox (ADR 0007).
+#
+# VS Code's Dev Containers extension, attached to a container, answers
+# requests from inside it with Windows' own git credentials, whatever its
+# settings say, and passes the Windows ssh-agent through. So p4a code
+# opens VS Code with Windows' git config switched off (no credential
+# helper, so those requests come back empty), without SSH_AUTH_SOCK, and
+# only once VS Code's settings stop it setting up anything else.
+
+# The VS Code settings p4a code needs, as they're written in settings.json.
+P4A_VSCODE_REQUIRED_SETTINGS=(
+  '"dev.containers.dockerPath": "podman"'
+  '"dev.containers.copyGitConfig": false'
+  '"dev.containers.gitCredentialHelperConfigLocation": "none"'
+  '"dev.containers.dockerCredentialHelper": false'
+)
+
+# Where VS Code keeps its user settings.
+_p4a_vscode_settings_file() {
+  if [[ -n ${P4A_VSCODE_SETTINGS:-} ]]; then
+    echo "$P4A_VSCODE_SETTINGS"
+  elif [[ -n ${APPDATA:-} ]]; then
+    echo "$(p4a_unix_path "$APPDATA")/Code/User/settings.json"
+  else
+    echo "${XDG_CONFIG_HOME:-$HOME/.config}/Code/User/settings.json"
+  fi
+}
+
+# p4a code PROJECT
+p4a_code() {
+  [[ $# -eq 1 ]] || p4a_usage_error "code needs one project name" "p4a --help"
+  local project=$1
+  _p4a_require_project "$project"
+  command -v code >/dev/null 2>&1 \
+    || p4a_die "VS Code's 'code' command isn't on PATH" \
+      "install VS Code with its 'Add to PATH' option, then open a new Git Bash"
+  _p4a_require_vscode_settings
+  p4a_require_running_sandbox_machine
+  if [[ "$(_p4a_sandbox_running "$project")" != true ]]; then
+    p4a_note "starting $project"
+    _p4a_start_existing_project "$project"
+  fi
+  _p4a_warn_about_ssh_agent
+
+  # An empty file for git's global config: with it, and no system config,
+  # Windows git has no credential helper while VS Code runs.
+  local no_gitconfig
+  no_gitconfig="$(p4a_config_dir)/empty.gitconfig"
+  mkdir -p "$(p4a_config_dir)"
+  : > "$no_gitconfig"
+
+  local source_dir hex
+  source_dir="$(_p4a_source_dir "$project")"
+  hex="$(printf '{"containerName":"/%s"}' "$(_p4a_sandbox_name "$project")" | od -An -tx1 | tr -d ' \n')"
+  env -u SSH_AUTH_SOCK MSYS_NO_PATHCONV=1 \
+    CONTAINER_CONNECTION="$P4A_MACHINE" CONTAINERS_MACHINE_PROVIDER="$P4A_PROVIDER" \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$(p4a_native_path "$no_gitconfig")" \
+    code --new-window --folder-uri "vscode-remote://attached-container+$hex$source_dir"
+  echo "Opened VS Code attached to $project's Sandbox, in $source_dir."
+}
+
+# Exit, naming them, unless VS Code's settings have every setting p4a code
+# needs. Spacing in the file doesn't matter.
+_p4a_require_vscode_settings() {
+  local file compact="" setting missing=()
+  file="$(_p4a_vscode_settings_file)"
+  [[ -r $file ]] && compact="$(tr -d ' \t\r\n' < "$file")"
+  for setting in "${P4A_VSCODE_REQUIRED_SETTINGS[@]}"; do
+    [[ $compact == *"${setting// /}"* ]] || missing+=("$setting")
+  done
+  (( ${#missing[@]} == 0 )) && return 0
+  {
+    echo "p4a: VS Code's settings would let an attached Sandbox use Windows' git or Docker credentials, or not find the Sandbox machine. Add these to $file:"
+    printf '  %s,\n' "${missing[@]}"
+    echo "  fix: open it with 'Preferences: Open User Settings (JSON)' in VS Code, add the lines, then try again"
+  } >&2
+  exit 1
+}
+
+# Warn if the Windows OpenSSH agent is running: VS Code passes it into
+# every container it attaches to, and nothing turns that off.
+_p4a_warn_about_ssh_agent() {
+  local status
+  status="$(p4a_powershell "(Get-Service ssh-agent -ErrorAction SilentlyContinue).Status" 2>/dev/null)" || return 0
+  [[ ${status//$'\r'/} == Running ]] || return 0
+  p4a_note "the Windows ssh-agent is running, and VS Code passes it into the Sandbox, so an Agent could use your SSH keys while VS Code is attached. To stop it, run 'Stop-Service ssh-agent' in an admin PowerShell."
+}

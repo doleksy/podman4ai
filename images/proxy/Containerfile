@@ -1,11 +1,13 @@
 # The Egress proxy image (ADR 0003). Its Allowlist comes from p4a, never
 # from the image: a file p4a writes into a project's proxy
 # (P4A_ALLOWLIST_FILE), or P4A_ALLOWLIST for the image build's proxy.
+# p4a port runs the port forwarder from this image too (ADR 0007).
 #
 # No RUN steps: this build needs no network, so `p4a image build` gives it
 # none. Only the FROM image is pulled, by Podman itself.
 FROM docker.io/library/node:22-alpine
 COPY egress-proxy.js /opt/podman4ai/egress-proxy.js
+COPY port-forward.js /opt/podman4ai/port-forward.js
 USER node
 EXPOSE 8888
 CMD ["node", "/opt/podman4ai/egress-proxy.js"]

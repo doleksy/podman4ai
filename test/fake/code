@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Stand-in VS Code `code` command on PATH for the unit tests.
+#
+# Records each call to $FAKE_CODE_DIR/calls: its arguments, one per line,
+# then the environment variables p4a code is expected to set or clear,
+# then a line "--". Also records whether GIT_CONFIG_GLOBAL names an empty
+# file.
+set -euo pipefail
+dir=${FAKE_CODE_DIR:?fake code: FAKE_CODE_DIR is not set}
+{
+  printf '%s\n' "$@"
+  for var in CONTAINER_CONNECTION CONTAINERS_MACHINE_PROVIDER GIT_CONFIG_NOSYSTEM GIT_CONFIG_GLOBAL SSH_AUTH_SOCK; do
+    printf 'env %s=%s\n' "$var" "${!var-<unset>}"
+  done
+  if [[ -n ${GIT_CONFIG_GLOBAL:-} ]]; then
+    file="$GIT_CONFIG_GLOBAL"
+    command -v cygpath >/dev/null 2>&1 && file="$(cygpath -u "$file")"
+    if [[ -f $file && ! -s $file ]]; then echo "git config global: empty file"; else echo "git config global: not an empty file"; fi
+  fi
+  echo --
+} >> "$dir/calls"

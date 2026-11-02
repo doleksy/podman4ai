@@ -36,9 +36,10 @@ p4a_recreate() {
 # running is started again, with the self-check; a stopped one stays
 # stopped.
 _p4a_recreate_project() {
-  local project=$1 state
+  local project=$1 state ports port
   _p4a_check_sandbox_can_be_created "$project"
   state="$(_p4a_sandbox_state "$project")"
+  ports="$(_p4a_project_ports "$project")"
   _p4a_remove_containers "$project"
   _p4a_part_exists network "$(_p4a_network_name "$project")" || _p4a_create_network "$project"
   _p4a_create_proxy "$project" \
@@ -47,6 +48,11 @@ _p4a_recreate_project() {
   _p4a_create_sandbox "$project" \
     || p4a_die "couldn't create the Sandbox for $project (see podman's message above); its volumes are kept" \
       "run 'p4a recreate $project' again"
+  while read -r port; do
+    [[ -z $port ]] || _p4a_create_forwarder "$project" "$port" \
+      || p4a_die "couldn't recreate the forwarder for port $port of $project (see podman's message above)" \
+        "publish it again with 'p4a port $project $port'"
+  done <<< "$ports"
   [[ $state != running ]] || _p4a_start_project "$project"
   echo "Recreated $project from the current images; its source and Claude config are kept."
 }
@@ -62,10 +68,13 @@ _p4a_require_images() {
   done
 }
 
-# Remove PROJECT's Sandbox and Egress proxy, stopping them first if they're
-# running. Either may already be gone.
+# Remove PROJECT's Sandbox, Egress proxy and port forwarders, stopping them
+# first if they're running. Any may already be gone.
 _p4a_remove_containers() {
-  p4a_sandbox_podman rm -f --ignore "$(_p4a_sandbox_name "$1")" "$(_p4a_proxy_name "$1")" >/dev/null
+  local forwarders=()
+  mapfile -t forwarders < <(_p4a_project_forwarders "$1")
+  p4a_sandbox_podman rm -f --ignore "$(_p4a_sandbox_name "$1")" "$(_p4a_proxy_name "$1")" \
+    "${forwarders[@]}" >/dev/null
 }
 
 # _p4a_part_exists KIND NAME

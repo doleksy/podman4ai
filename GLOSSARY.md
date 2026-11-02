@@ -34,6 +34,10 @@ _Avoid_: CLI, wrapper, script, devcontainer
 The container that is a Sandbox's only route to the internet, permitting connections to Allowlist domains and refusing the rest.
 _Avoid_: firewall, gateway, proxy server
 
+**Port forwarder**:
+The container `p4a port` creates to publish one Sandbox port on Windows localhost only, passing connections to that port of the Sandbox and nowhere else.
+_Avoid_: port mapping, tunnel
+
 ### Images
 
 **Base image**:
