@@ -27,8 +27,9 @@ load project-helpers
   p4a new octo/spoon-knife
 
   local one two
-  one="$(create_args podman4ai-hello-world | flag_values --network)"
-  two="$(create_args podman4ai-spoon-knife | flag_values --network)"
+  # Each Sandbox has a fixed address on its network: NETWORK:ip=ADDRESS.
+  one="$(create_args podman4ai-hello-world | flag_values --network | sed 's/:ip=.*//')"
+  two="$(create_args podman4ai-spoon-knife | flag_values --network | sed 's/:ip=.*//')"
   [ "$(wc -l <<< "$one")" -eq 1 ]
   [ "$(wc -l <<< "$two")" -eq 1 ]
   [ -n "$one" ]
@@ -65,7 +66,7 @@ load project-helpers
   host="$(flag_values --add-host <<< "$args")"
   [[ $host == egress-proxy:* ]]
   ip="${host#egress-proxy:}"
-  network="$(flag_values --network <<< "$args")"
+  network="$(flag_values --network <<< "$args" | sed 's/:ip=.*//')"
   proxy="$(create_args podman4ai-hello-world-proxy)"
   [ -n "$proxy" ]
   has_line "$network:ip=$ip" <<< "$(flag_values --network <<< "$proxy")"

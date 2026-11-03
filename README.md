@@ -64,6 +64,11 @@ p4a disallow <project> <domain>
                      take back a domain allowed with p4a allow
 p4a blocked <project>
                      list the domains a project's Egress proxy refused, most frequent first
+p4a port <project> [<port>]
+                     publish a Sandbox port at localhost:<port> on Windows only, or list them
+p4a unport <project> <port>
+                     stop publishing a port
+p4a code <project>   open VS Code attached to a project's Sandbox, in its source folder
 p4a podman <args>    run any podman command against the Sandbox machine
 ```
 
@@ -88,7 +93,7 @@ Each Sandbox mounts the Agent token at `/run/secrets/agent-token` and only its o
 - a Claude config volume, `podman4ai-hello-world-claude`, mounted at `/home/agent/.claude`
 - an internal network, `podman4ai-hello-world`, with no route out and no DNS, and its own subnet
 - an Egress proxy, `podman4ai-hello-world-proxy`, given the project's Allowlist (see [Allowlists](#allowlists))
-- the Sandbox, `podman4ai-hello-world`, on that network only. It runs as the non-root user `agent` with all capabilities dropped, no-new-privileges, Podman's default seccomp and SELinux, no Podman socket and no Host paths, and is limited by default to 4 GB memory, 4 CPUs and 4096 processes (see [Limits](#limits)).
+- the Sandbox, `podman4ai-hello-world`, on that network only, at a fixed address (`.3`) where [published ports](#vs-code-and-dev-servers) reach it. It publishes no ports itself. It runs as the non-root user `agent` with all capabilities dropped, no-new-privileges, Podman's default seccomp and SELinux, no Podman socket and no Host paths, and is limited by default to 4 GB memory, 4 CPUs and 4096 processes (see [Limits](#limits)).
 
 Every start runs a self-check from inside the Sandbox: `github.com` must be reachable through the Egress proxy and `example.com` must not be. If either check fails, `p4a` stops the Sandbox and its proxy and says why.
 
@@ -129,6 +134,10 @@ p4a claude hello-world --dangerously-skip-permissions
 Closing the terminal leaves the session running. Run `p4a claude hello-world` again, from any Git Bash, to come back to it. In VS Code, open a Git Bash terminal (the default PowerShell one can't run `p4a`). Arguments given while a session is already running aren't used (`p4a` says so): quit Claude Code there first to start a new session with them. To leave without closing the terminal, detach with `Ctrl-b d`. When Claude Code exits, the session ends.
 
 `p4a shell hello-world` stays a plain shell beside the session. From there, `tmux attach -t claude` reaches the session too.
+
+### VS Code and dev servers
+
+`p4a code hello-world` opens VS Code attached to the project's Sandbox, in its source folder, with the editor engine, extensions and terminal running inside the Sandbox as `agent`. `p4a port hello-world 3000` publishes the Sandbox's port 3000 at `http://localhost:3000` on Windows only, and `p4a unport hello-world 3000` takes it back. `p4a code` runs a VS Code of its own, with its own settings, sign-ins and extensions, so none of your everyday ones (or your Windows git credentials) reach a Sandbox. See [docs/vscode.md](docs/vscode.md), including what a dev server needs.
 
 ### Allowlists
 
@@ -249,6 +258,7 @@ test/host/image-build.sh   # bad build step refused, build log clean, no sudo, n
 test/host/project-image.sh # Project image refused until p4a allow, then recreate puts the Sandbox on it
 test/host/secrets.sh       # each Sandbox sees only its own Repo token, no token in podman inspect
 test/host/base-image.sh    # every Base image tool runs as agent, user installs survive a restart, labels
+test/host/port.sh          # p4a port reaches a Sandbox server at Windows localhost only, survives a restart, unport
 ```
 
 `test/host/isolation.sh` needs both images built. It creates two throwaway projects, `spoon-knife` (from `octocat/Spoon-Knife`) and `test-repo1` (from `octocat/test-repo1`), and runs each check inside a Sandbox with `p4a shell <project> -- <command>`. The checks cover: non-allowlisted domains refused and logged, allowlisted domains working through the proxy, `p4a blocked` listing a refused domain, `p4a allow` opening a domain within seconds for its own project only and `p4a disallow` closing it again, no outside DNS, no Host paths, non-root user with no capabilities, no sudo and no-new-privileges, no Podman socket, no route from one Sandbox to another or to its proxy, the Claude baseline (its plugins loaded from the image by a real Claude session, with nothing refused by the Egress proxy, context-mode's doctor passing, memory staying in its own project), `p4a recreate` giving a running Sandbox the current Base image and keeping it running with its uncommitted work and Claude config, and the process and memory limits. The Claude session check sends one short prompt on the Agent token. Afterwards it removes both projects, their volumes and their network, even after a failure or Ctrl-C. It refuses to start if anything with those names already exists. To use other public repos, set `P4A_ISOLATION_REPO_A` and `P4A_ISOLATION_REPO_B` to `owner/repo`. It refuses to run inside a Sandbox.

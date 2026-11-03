@@ -22,6 +22,10 @@ source "$P4A_HOME/lib/project.sh"
 source "$P4A_HOME/lib/allowlist.sh"
 # shellcheck source=../lib/lifecycle.sh
 source "$P4A_HOME/lib/lifecycle.sh"
+# shellcheck source=../lib/port.sh
+source "$P4A_HOME/lib/port.sh"
+# shellcheck source=../lib/vscode.sh
+source "$P4A_HOME/lib/vscode.sh"
 
 main() {
   local command="${1:-}"
@@ -42,6 +46,9 @@ main() {
     allow) shift; p4a_allow "$@" ;;
     disallow) shift; p4a_disallow "$@" ;;
     blocked) shift; p4a_blocked "$@" ;;
+    port) shift; p4a_port "$@" ;;
+    unport) shift; p4a_unport "$@" ;;
+    code) shift; p4a_code "$@" ;;
     podman) shift; p4a_sandbox_podman "$@" ;;
     *) p4a_usage_error "unknown command '$command'" "p4a --help" ;;
   esac
@@ -97,6 +104,15 @@ Commands:
                           take back a domain allowed with p4a allow
   p4a blocked <project>   list the domains a project's Egress proxy refused,
                           most frequent first
+  p4a port <project> [<port>]
+                          publish a port of a project's Sandbox at
+                          localhost:<port> on Windows only (never on other
+                          network interfaces), or list the ports it publishes
+  p4a unport <project> <port>
+                          stop publishing a port published with p4a port
+  p4a code <project>      open VS Code attached to a project's Sandbox, in its
+                          source folder, with Windows' git credentials kept
+                          out (see docs/vscode.md)
   p4a podman <args>...    run any podman command against the Sandbox machine
   p4a --help              show this help
 EOF

@@ -27,3 +27,6 @@ update.code.visualstudio.com
 vscode.download.prss.microsoft.com
 marketplace.visualstudio.com
 *.gallerycdn.vsassets.io
+# Where the marketplace now serves extension downloads from:
+# <publisher>.gallery.vsassets.io
+*.gallery.vsassets.io
