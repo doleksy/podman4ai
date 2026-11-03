@@ -17,10 +17,11 @@ nodejs.org
 # gh's apt repository
 cli.github.com
 
-# Latest-release lookups and release downloads for uv, ruff, ty, Bun,
-# git-delta and Python (python-build-standalone, which uv installs), where
-# GitHub redirects each download to its asset host; and the
-# Claude baseline's plugins and their marketplaces (git clones)
+# Latest-release lookups and downloads for the Base image's tools that are
+# published as GitHub releases, and for the Python that uv installs
+# (python-build-standalone), where GitHub redirects each download to its
+# asset host; and the Claude baseline's plugins and their marketplaces
+# (git clones)
 github.com
 release-assets.githubusercontent.com
 

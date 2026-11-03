@@ -287,7 +287,7 @@ ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
           <tr><td>Network</td><td>Per-project internal network and Egress proxy, allowing domain names on the Allowlist. Added only by you, with <code>p4a allow</code>.</td><td class="adr">0003</td></tr>
           <tr><td>Hardening</td><td>Rootless, all capabilities dropped, <code>no-new-privileges</code>, non-root user, no <code>sudo</code>, no Podman socket, limits of 4 GB / 4 CPUs / 4096 processes.</td><td class="adr"></td></tr>
           <tr><td>Secrets</td><td>Agent token from <code>claude setup-token</code> and a Repo token per project, stored as Podman secrets and mounted as files.</td><td class="adr"></td></tr>
-          <tr><td>Base image</td><td>Anthropic's reference Dockerfile, adapted: Debian, Node, Python with uv, Bun, tmux, gh. No zsh and no in-container firewall.</td><td class="adr"></td></tr>
+          <tr><td>Base image</td><td>Anthropic's reference Dockerfile, adapted: Debian, a non-root user, no zsh and no in-container firewall. The README lists the tools it installs.</td><td class="adr"></td></tr>
           <tr><td>Claude baseline</td><td>Settings and plugins (context-mode, mattpocock-skills) versioned in podman4ai and baked into the image. Memory stays per Sandbox.</td><td class="adr"></td></tr>
           <tr><td>Working</td><td>VS Code attaches to the Sandbox; Visual Studio is ruled out.</td><td class="adr">0001</td></tr>
           <tr><td>Sessions</td><td>Sessions run in tmux via <code>p4a claude</code>. Commits use your name with a Co-Authored-By line.</td><td class="adr"></td></tr>
