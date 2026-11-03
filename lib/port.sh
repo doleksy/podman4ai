@@ -126,14 +126,16 @@ _p4a_port_published() {
   grep -qx -- "$2" <<< "$ports"
 }
 
-# Print the ports PROJECT publishes, one per line, in order.
+# Print the ports PROJECT publishes, one per line, in order. Exit if
+# podman can't say, explicitly, as errexit is off inside a condition.
 _p4a_project_ports() {
-  local prefix names=() name
+  local prefix list name
   prefix="$(_p4a_forwarder_name "$1" "")"
-  _p4a_read_forwarders "$1" names
-  for name in "${names[@]}"; do
+  list="$(_p4a_project_forwarders "$1")" || exit 1
+  [[ -n $list ]] || return 0
+  while read -r name; do
     echo "${name#"$prefix"}"
-  done | sort -n
+  done <<< "$list" | sort -n
 }
 
 # Print the names of PROJECT's Port forwarders, one per line. Exit if

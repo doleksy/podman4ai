@@ -201,3 +201,18 @@ start podman4ai-hello-world-port-3000" ]
   [[ "$output" == *"couldn't list the Port forwarders of hello-world"* ]]
   [ -z "$(sandbox_calls | grep -E '^(rm|create) ')" ]
 }
+
+@test "port and unport report it when podman can't list a project's ports, rather than guessing" {
+  hello_world_exists
+  hello_world_state true
+  fake_podman "--connection podman4ai ps --all --filter label=podman4ai.port-of=hello-world" --exit 125 \
+    --stderr "Error: something went wrong"
+  run p4a unport hello-world 3000
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"couldn't list the Port forwarders of hello-world"* ]]
+  [[ "$output" != *"isn't published"* ]]
+  run p4a port hello-world 3000
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"couldn't list the Port forwarders of hello-world"* ]]
+  [ -z "$(sandbox_calls | grep -E '^(rm|create) ')" ]
+}
