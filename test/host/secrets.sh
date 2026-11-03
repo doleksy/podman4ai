@@ -16,10 +16,8 @@
 #    recreates it, keeping its source), and so does a removed one: a
 #    project with no Repo token can't push, and says how to set one.
 #
-# Not covered here, because they need real tokens for a repository you own
-# (check them by hand):
-#   p4a shell <project> -- claude -p "say hello"
-#   p4a shell <project> -- sh -c 'git switch -c p4a-push-test && git push -u origin p4a-push-test'
+# Signing in on real tokens (Claude answering, cloning and pushing a private
+# repository) is checked by test/host/sign-in.sh instead.
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
