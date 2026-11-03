@@ -18,11 +18,15 @@
 # for the values it accepts (in settings.json, without spaces), and the
 # value to write or suggest. dockerPath may also be a full path to podman.
 # VS Code's default for defaultExtensionsIfInstalledLocally installs the
-# GitHub Copilot and Pull Requests extensions in every container.
+# GitHub Copilot and Pull Requests extensions in every container. Its
+# default for forwardWSLServices installs a VS Code server in the default
+# WSL distro, which sees the Windows drives, and passes that distro's
+# ssh-agent, GPG agent and display into the container.
 P4A_VSCODE_REQUIRED_SETTINGS='dev.containers.dockerPath "([^"]*[/\\])?podman(\.exe)?" "podman"
 dev.containers.copyGitConfig false false
 dev.containers.gitCredentialHelperConfigLocation "none" "none"
 dev.containers.dockerCredentialHelper false false
+dev.containers.forwardWSLServices false false
 remote.defaultExtensionsIfInstalledLocally \[\] []'
 # The extension p4a code's VS Code attaches with.
 P4A_VSCODE_DEV_CONTAINERS=ms-vscode-remote.remote-containers

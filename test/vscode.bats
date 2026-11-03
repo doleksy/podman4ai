@@ -11,6 +11,7 @@ SAFE_SETTINGS='{
   "dev.containers.copyGitConfig": false,
   "dev.containers.gitCredentialHelperConfigLocation": "none",
   "dev.containers.dockerCredentialHelper": false,
+  "dev.containers.forwardWSLServices": false,
   "remote.defaultExtensionsIfInstalledLocally": [],
   "editor.fontSize": 14
 }'
@@ -68,7 +69,7 @@ hello_world_for_code() {
   code_calls | has_line "env GIT_ASKPASS=<unset>"
 }
 
-@test "code refuses, naming them, until VS Code has the settings that keep Windows credentials out" {
+@test "code refuses, naming them, until VS Code has the settings that keep Windows and WSL credentials out" {
   hello_world_for_code '{
   "dev.containers.dockerPath": "podman",
   "dev.containers.copyGitConfig": true,
@@ -80,12 +81,13 @@ hello_world_for_code() {
   [[ "$output" == *'"dev.containers.copyGitConfig": false'* ]]
   [[ "$output" == *'"dev.containers.gitCredentialHelperConfigLocation": "none"'* ]]
   [[ "$output" == *'"dev.containers.dockerCredentialHelper": false'* ]]
+  [[ "$output" == *'"dev.containers.forwardWSLServices": false'* ]]
   [[ "$output" != *'"dev.containers.dockerPath": "podman"'* ]]
   [[ "$output" == *'"remote.defaultExtensionsIfInstalledLocally": []'* ]]
   [[ "$output" == *"$(vscode_settings)"* ]]
 
   # Spacing doesn't matter.
-  printf '{"dev.containers.dockerPath":"podman","dev.containers.copyGitConfig":false,\n"dev.containers.gitCredentialHelperConfigLocation" :  "none", "dev.containers.dockerCredentialHelper":false, "remote.defaultExtensionsIfInstalledLocally": [ ]}\n' \
+  printf '{"dev.containers.dockerPath":"podman","dev.containers.copyGitConfig":false,\n"dev.containers.gitCredentialHelperConfigLocation" :  "none", "dev.containers.dockerCredentialHelper":false, "dev.containers.forwardWSLServices": false, "remote.defaultExtensionsIfInstalledLocally": [ ]}\n' \
     > "$(vscode_settings)"
   run p4a code hello-world
   [ "$status" -eq 0 ]
@@ -137,6 +139,7 @@ hello_world_for_code() {
   [[ $settings == *'"dev.containers.copyGitConfig":false'* ]]
   [[ $settings == *'"dev.containers.gitCredentialHelperConfigLocation":"none"'* ]]
   [[ $settings == *'"dev.containers.dockerCredentialHelper":false'* ]]
+  [[ $settings == *'"dev.containers.forwardWSLServices":false'* ]]
   # VS Code's default would install the GitHub extensions in every Sandbox.
   [[ $settings == *'"remote.defaultExtensionsIfInstalledLocally":[]'* ]]
   [ "$(code_calls | grep -c -- '--install-extension')" -eq 1 ]

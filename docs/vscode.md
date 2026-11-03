@@ -22,10 +22,11 @@ The first `p4a code` installs Dev Containers there and writes its settings file,
 "dev.containers.copyGitConfig": false,
 "dev.containers.gitCredentialHelperConfigLocation": "none",
 "dev.containers.dockerCredentialHelper": false,
+"dev.containers.forwardWSLServices": false,
 "remote.defaultExtensionsIfInstalledLocally": [],
 ```
 
-The first lets VS Code use Podman. The next three stop VS Code copying your Windows git config into the Sandbox and setting up its git and Docker credential helpers there. The last stops it copying extensions in. Add anything else you like (a theme, say): `p4a code` keeps your changes, but refuses to start if one of these is missing or changed, and names it.
+The first lets VS Code use Podman (a full path to `podman.exe` works too). The next three stop VS Code copying your Windows git config into the Sandbox and setting up its git and Docker credential helpers there. `forwardWSLServices` stops it reaching into WSL: by default it installs a VS Code server in your default WSL distro, which can read your Windows drives, and passes that distro's ssh-agent, GPG agent and display into the container. The last stops it copying extensions in. Add anything else you like (a theme, say): `p4a code` keeps your changes, but refuses to start if one of these is missing or changed, and names it. When a new version of `p4a` needs a new setting, add the line it names.
 
 ## Attaching
 
