@@ -39,7 +39,8 @@ EOF
   exit 0
 fi
 if [[ ! $P4A_TEST_REPO =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
-  echo "P4A_TEST_REPO must be owner/repo, not '$P4A_TEST_REPO'." >&2
+  echo "sign-in.sh: P4A_TEST_REPO must be owner/repo, not '$P4A_TEST_REPO'." >&2
+  echo "  fix: P4A_TEST_REPO=owner/repo test/host/sign-in.sh" >&2
   exit 2
 fi
 
@@ -92,8 +93,8 @@ missing=()
 part_exists secret "$agent_secret" || missing+=("p4a secret set agent-token")
 part_exists secret "$repo_secret" || missing+=("p4a secret set repo-token $project")
 if (( ${#missing[@]} )); then
-  echo "This check signs in with real tokens, and these aren't stored yet. Set them with:" >&2
-  printf '  %s\n' "${missing[@]}" >&2
+  echo "This check signs in with real tokens, and not all of them are stored yet." >&2
+  printf '  fix: %s\n' "${missing[@]}" >&2
   exit 2
 fi
 
@@ -166,18 +167,30 @@ cleanup() {
       fi
     fi
 
-    # p4a rm asks for the project name before deleting its volumes.
-    if ! p4a rm "$project" <<< "$project" > "$tmp/rm" 2>&1; then
-      echo "p4a rm $project failed; removing what's left directly:"
+    # p4a rm asks for the project name before deleting its volumes, and
+    # exits 0 even when it keeps them, so check it said it removed them.
+    # Only if it didn't, remove what's left directly.
+    # (Without its settings file, p4a new failed early and p4a rm can't run.)
+    local direct=0
+    if [[ ! -e ${project_files[0]} ]]; then
+      direct=1
+    elif p4a rm "$project" <<< "$project" > "$tmp/rm" 2>&1 \
+      && grep -qF "Removed the project $project," "$tmp/rm"; then
+      echo "PASS  cleanup: p4a rm $project removed the project"
+    else
+      echo "FAIL  cleanup: p4a rm $project didn't remove the project; removing what's left directly:"
       show "$(< "$tmp/rm")"
+      (( status )) || status=1
+      direct=1
     fi
-    # After a successful p4a rm, nothing is left to remove here.
     for part in $(project_parts); do
       kind="${part%%:*}" name="${part#*:}"
-      if [[ $kind == container ]]; then
-        p4a podman rm -f -t 0 "$name" >/dev/null 2>&1
-      else
-        p4a podman "$kind" rm -f "$name" >/dev/null 2>&1
+      if (( direct )); then
+        if [[ $kind == container ]]; then
+          p4a podman rm -f -t 0 "$name" >/dev/null 2>&1
+        else
+          p4a podman "$kind" rm -f "$name" >/dev/null 2>&1
+        fi
       fi
       exists=0
       p4a podman "$kind" exists "$name" || exists=$?
@@ -187,9 +200,8 @@ cleanup() {
         *) left+=("the $kind $name (couldn't check: podman exited with $exists)") ;;
       esac
     done
-    p4a podman image rm --ignore "localhost/podman4ai-project-$project" >/dev/null 2>&1
     for file in "${project_files[@]}"; do
-      rm -f "$file"
+      (( ! direct )) || rm -f "$file"
       [[ ! -e $file ]] || left+=("$file")
     done
 
@@ -224,13 +236,14 @@ else
 fi
 
 echo "--- 2. Claude answers on the Agent token"
-if in_sandbox claude -p "say hello" && [[ -n ${out//[[:space:]]/} ]]; then
-  pass "claude -p answered"
-elif [[ -z ${out//[[:space:]]/} && -z $err ]]; then
-  fail "claude -p exited 0 but gave no answer"
-else
+if ! in_sandbox claude -p "say hello"; then
   fail "claude -p failed"
   show "$err"
+elif [[ -z ${out//[[:space:]]/} ]]; then
+  fail "claude -p exited 0 but gave no answer"
+  show "$err"
+else
+  pass "claude -p answered"
 fi
 
 echo "--- 3. A commit in the Sandbox carries the Host's git identity"
@@ -261,9 +274,9 @@ if in_sandbox git push -q -u origin "$branch"; then
     show "$err"
   fi
   if in_sandbox git push -q origin --delete "$branch"; then
-    status=0
-    branch_on_github || status=$?
-    if (( status == 1 )); then
+    listed=0
+    branch_on_github || listed=$?
+    if (( listed == 1 )); then
       deleted=1
       pass "deleted $branch, and git ls-remote no longer lists it"
     else
