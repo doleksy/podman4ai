@@ -121,7 +121,7 @@ _p4a_require_vscode_settings() {
   done <<< "$P4A_VSCODE_REQUIRED_SETTINGS"
   (( ${#missing[@]} == 0 )) && return 0
   {
-    echo "p4a: p4a code's VS Code settings would let an attached Sandbox use Windows' git or Docker credentials or your extensions, or not find the Sandbox machine. Add these to $file:"
+    echo "p4a: p4a code's VS Code settings would let an attached Sandbox use Windows' git or Docker credentials, WSL or your extensions, or not find the Sandbox machine. Add these to $file:"
     printf '  %s,\n' "${missing[@]}"
     echo "  fix: add the lines (or delete the file, and p4a code writes it again), then try again"
   } >&2
