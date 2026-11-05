@@ -11,7 +11,9 @@
 # 2. Claude answers a prompt on the Agent token;
 # 3. a commit made in the Sandbox carries the Host's git name and email;
 # 4. a branch pushed from the Sandbox is seen on GitHub, then deleted;
-# 5. no token value appears in anything it captured.
+# 5. gh in the Sandbox lists the repository's issues and pull requests
+#    on the Repo token;
+# 6. no token value appears in anything it captured.
 # Afterwards it deletes the test branch if it's still there and removes the
 # project with `p4a rm`, keeping its Repo token, even after a failure or
 # Ctrl-C. It stops before creating anything if the project already exists.
@@ -292,7 +294,19 @@ else
   show "$err"
 fi
 
-echo "--- 5. No token value appears in the output"
+echo "--- 5. gh signs in on the Repo token"
+# Read-only calls that need the token's Issues and Pull requests access on a
+# private repository, so they fail if gh isn't given the token.
+for kind in issue pr; do
+  if in_sandbox gh "$kind" list -R "$P4A_TEST_REPO" --state all --limit 1; then
+    pass "gh $kind list read $P4A_TEST_REPO"
+  else
+    fail "gh $kind list couldn't read $P4A_TEST_REPO"
+    show "$err"
+  fi
+done
+
+echo "--- 6. No token value appears in the output"
 leaked=0 unreadable=0
 for secret in "$agent_secret" "$repo_secret"; do
   value="$(p4a podman secret inspect --showsecret --format '{{.SecretData}}' "$secret" 2>/dev/null)"
