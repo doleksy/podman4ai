@@ -120,10 +120,13 @@ COPY tmux.conf /etc/tmux.conf
 # Signing in (the tokens are mounted at /run/secrets when a Sandbox is
 # created, never stored in the image): p4a-session hands the Agent token to
 # Claude Code, and git signs in to GitHub, over HTTPS only, with the
-# project's Repo token. Claude Code's default commit attribution adds the
-# Co-Authored-By line to Agent commits.
+# project's Repo token. So does gh, through p4a-gh, which comes before the
+# real gh on PATH (gh doesn't use git's credential helpers). Claude Code's
+# default commit attribution adds the Co-Authored-By line to Agent commits.
 COPY --chmod=755 p4a-session p4a-git-credential /usr/local/bin/
-RUN git config --system credential.https://github.com.helper /usr/local/bin/p4a-git-credential
+COPY --chmod=755 p4a-gh /usr/local/bin/gh
+RUN git config --system credential.https://github.com.helper /usr/local/bin/p4a-git-credential \
+ && [ "$(command -v gh)" = /usr/local/bin/gh ] && [ -x /usr/bin/gh ]
 
 # The Claude baseline: the settings every Sandbox's Claude Code starts
 # with (claude-baseline/, see the README). p4a-entrypoint copies it into

@@ -60,6 +60,42 @@ password=github_pat_abc" ]
   done
 }
 
+# Run p4a-gh against a stand-in for the real gh that prints the token it
+# was given (or <unset>) and its arguments.
+gh_wrapped() {
+  cat > "$BATS_TEST_TMPDIR/real-gh" <<'FAKE'
+#!/bin/sh
+echo "${GH_TOKEN-<unset>}|$*"
+FAKE
+  chmod +x "$BATS_TEST_TMPDIR/real-gh"
+  P4A_REAL_GH="$BATS_TEST_TMPDIR/real-gh" sh "$SCRIPTS/p4a-gh" "$@"
+}
+
+@test "gh signs in with the Repo token, passing its arguments through" {
+  unset GH_TOKEN GITHUB_TOKEN
+  printf 'github_pat_abc\n' > "$P4A_SECRETS_DIR/repo-token"
+  run gh_wrapped issue list --label "needs triage"
+  [ "$status" -eq 0 ]
+  [ "$output" = "github_pat_abc|issue list --label needs triage" ]
+}
+
+@test "gh keeps a GH_TOKEN or GITHUB_TOKEN that's already set" {
+  printf 'github_pat_abc\n' > "$P4A_SECRETS_DIR/repo-token"
+  GH_TOKEN=github_pat_own run gh_wrapped auth status
+  [ "$output" = "github_pat_own|auth status" ]
+  unset GH_TOKEN
+  GITHUB_TOKEN=github_pat_own run gh_wrapped auth status
+  [ "$output" = "<unset>|auth status" ]
+}
+
+@test "with no Repo token, gh says how to set one, then runs anyway" {
+  unset GH_TOKEN GITHUB_TOKEN
+  local out
+  out="$(gh_wrapped repo view 2> "$BATS_TEST_TMPDIR/err")"
+  [ "$out" = "<unset>|repo view" ]
+  [[ "$(cat "$BATS_TEST_TMPDIR/err")" == *"p4a secret set repo-token hello-world"* ]]
+}
+
 # A stand-in Claude baseline (in the image, /usr/local/share/podman4ai/
 # claude-baseline) and Claude config volume (~/.claude) for p4a-entrypoint.
 baseline_setup() {
