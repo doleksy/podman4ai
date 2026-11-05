@@ -35,8 +35,8 @@ Secrets:
   agent-token             the Agent token every Sandbox uses to sign in to
                           Claude (create one with 'claude setup-token')
   repo-token <project>    a fine-grained token from GitHub for that project's one
-                          repository (contents and pull requests: read and
-                          write). Set it before 'p4a new' to clone a private
+                          repository (contents, pull requests and issues: read
+                          and write). Set it before 'p4a new' to clone a private
                           repository.
 
 Existing Sandboxes get a new value at their next 'p4a stop', then
