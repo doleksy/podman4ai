@@ -18,7 +18,9 @@
 # 3. npm install -g, uv tool install and pip install --user work without
 #    root, and what they installed is still there after p4a stop and start.
 # 4. Claude Code's self-updater, telemetry and error reporting are off.
-# 5. tmux has the mouse on and shows the project's name.
+# 5. tmux has the mouse on, shows the project's name, and runs in a UTF-8
+#    locale (C.UTF-8, or en_US.UTF-8 if a terminal passes it in), so it
+#    draws Claude Code's Unicode.
 # 6. The image's labels say when it was built and which Claude Code it has.
 #
 # test/host/image-build.sh checks that the build itself went only through
@@ -111,6 +113,20 @@ echo "--- 5. tmux"
 status_left="$(in_sandbox sh -c 'tmux new -d -s p4a-check && tmux show -gv status-left; tmux show -gv mouse; tmux kill-server' 2>&1)"
 if [[ $status_left == *"$project"* ]]; then pass "tmux's status bar shows $project"; else fail "tmux's status bar doesn't show $project: $status_left"; fi
 if [[ $(tail -1 <<< "$status_left") == on ]]; then pass "tmux has the mouse on"; else fail "tmux's mouse isn't on"; fi
+# Without a UTF-8 locale tmux garbles Claude Code's screen (#56): it sends
+# a terminal _ in place of each character it can't size, such as ⏺. Check
+# the image's own locale, and en_US.UTF-8, which VS Code's terminal passes in.
+# script gives tmux attach the terminal it needs.
+for lang in C.UTF-8 en_US.UTF-8; do
+  [[ $lang == C.UTF-8 ]] && env=() || env=("LANG=$lang")
+  charmap="$(in_sandbox env "${env[@]}" locale charmap 2>&1)"
+  if [[ $charmap == UTF-8 ]]; then pass "$lang is the locale's charset, with no warnings"; else fail "$lang locale: $charmap"; fi
+  drawn="$(in_sandbox env "${env[@]}" TERM=xterm-256color sh -c '
+    tmux -L p4a-check new -d "printf \"\342\217\272\n\"; sleep 30" && sleep 1
+    timeout 3 script -qc "tmux -L p4a-check attach" /dev/null
+    tmux -L p4a-check kill-server' 2>/dev/null || true)"
+  if [[ $drawn == *⏺* ]]; then pass "tmux draws ⏺ under $lang"; else fail "tmux doesn't draw ⏺ under $lang"; fi
+done
 
 echo "--- 6. The image's labels"
 created="$(p4a podman image inspect --format '{{index .Labels "org.opencontainers.image.created"}}' localhost/podman4ai-base)"

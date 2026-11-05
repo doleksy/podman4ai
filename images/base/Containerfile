@@ -18,11 +18,18 @@ RUN apt-get update \
  && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl git less nano jq ripgrep fzf tmux procps unzip \
-      libatomic1 \
+      libatomic1 locales \
  && rm -rf /var/lib/apt/lists/* \
+ && sed -i 's/^# *\(en_US\.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
+ && locale-gen \
  && useradd --create-home --uid 1000 --shell /bin/bash agent \
  && mkdir /workspace /home/agent/.claude \
  && chown agent:agent /workspace /home/agent/.claude
+
+# A UTF-8 locale (#56). Without one, tmux misjudges the width of Claude
+# Code's Unicode characters and garbles its screen. en_US.UTF-8 is there
+# too, for terminals such as VS Code's that pass in their own LANG.
+ENV LANG=C.UTF-8
 
 # gh, from GitHub's own apt repository (Debian's is years old).
 RUN mkdir -p /etc/apt/keyrings \
