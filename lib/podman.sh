@@ -21,6 +21,37 @@ p4a_sandbox_podman() {
   p4a_podman --connection "$P4A_MACHINE" "$@"
 }
 
+# p4a_sandbox_podman_on_terminal PODMAN_ARGUMENT...
+# Like p4a_sandbox_podman, for a command that draws on this terminal (a
+# shell, tmux). It runs podman inside the Sandbox machine over Git Bash's
+# own ssh, with the address, user and key Podman uses. podman.exe is a
+# native Windows program, so Git Bash would run it through Windows' ConPTY,
+# which redraws the screen from its own copy and garbles full-screen
+# programs such as Claude Code in tmux. ssh is a Git Bash program and
+# doesn't go through ConPTY. Returns the command's exit code (ssh's own
+# failures are 255).
+p4a_sandbox_podman_on_terminal() {
+  local info port identity user
+  info="$(p4a_podman machine inspect \
+    --format '{{.SSHConfig.Port}}|{{.SSHConfig.IdentityPath}}|{{.SSHConfig.RemoteUsername}}' "$P4A_MACHINE")" \
+    || p4a_die "couldn't read how to reach the Sandbox machine over ssh" \
+      "check it with 'podman machine inspect $P4A_MACHINE'"
+  IFS='|' read -r port identity user <<< "${info%$'\r'}"
+  [[ -n $port && -n $identity && -n $user ]] \
+    || p4a_die "podman machine inspect didn't say how to reach the Sandbox machine over ssh (it said: $info)" \
+      "check it with 'podman machine inspect $P4A_MACHINE'"
+  command -v ssh >/dev/null 2>&1 \
+    || p4a_die "ssh not found on PATH" "run p4a from Git Bash, which comes with ssh"
+  # ssh hands the remote shell (bash) one string, so quote each argument.
+  local remote
+  printf -v remote '%q ' podman "$@"
+  local status=0
+  ssh -q -t -p "$port" -i "$(p4a_unix_path "$identity")" \
+    -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o LogLevel=ERROR "$user@127.0.0.1" "$remote" || status=$?
+  return "$status"
+}
+
 # Print a Host file path in the form podman.exe understands. Under Git Bash
 # that's C:/... (path conversion is off); elsewhere the path is unchanged.
 p4a_native_path() {
