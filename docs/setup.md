@@ -80,7 +80,7 @@ claude setup-token          # on the Host, once: prints the Agent token, valid a
 p4a secret set agent-token  # paste it at the hidden prompt
 ```
 
-For a repository the Agent should push to, or a private one, the project needs a Repo token: make a [fine-grained token](https://github.com/settings/personal-access-tokens/new) for that one repository, with read and write access to Contents, Pull requests and Issues, and store it before creating the project:
+For a repository the Agent should push to, or a private one, the project needs a Repo token: make a [fine-grained token](https://github.com/settings/personal-access-tokens/new) for that one repository. It needs Contents, Pull requests and Issues, each Read and write. Add Actions: Read-only too, so the Agent can see CI results; the README's [Repo token permissions](../README.md#repo-token-permissions) says what that allows and which other permissions you might want. Store it before creating the project:
 
 ```bash
 p4a secret set repo-token <project>   # the project is the repository name, lower case
