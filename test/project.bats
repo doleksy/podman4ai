@@ -268,13 +268,16 @@ hello_world_running() {
   export P4A_TEST_ON_TERMINAL=1 FAKE_SSH_EXIT=4
   run p4a shell hello-world
   [ "$status" -eq 4 ]
-  # ssh's options and host, then the words the remote bash runs.
+  # ssh's options and host, then the words the remote bash runs. The key is
+  # where Podman said, in the form Git Bash uses (unchanged off Windows).
+  local key='C:\Users\me\.local\share\containers\podman\machine\machine'
+  if command -v cygpath >/dev/null 2>&1; then key="$(cygpath -u "$key")"; fi
   [ "$(sed -n '1,15p;/^remote:$/,$p' "$FAKE_SSH_DIR/calls")" = "-q
 -t
 -p
 50123
 -i
-/c/Users/me/.local/share/containers/podman/machine/machine
+$key
 -o
 IdentitiesOnly=yes
 -o
