@@ -263,6 +263,85 @@ hello_world_running() {
   [ -z "$(sandbox_calls | grep '^exec ')" ]
 }
 
+@test "shell on a terminal goes over Git Bash's ssh into the Sandbox machine, not through podman.exe, and returns the exit code" {
+  hello_world_running
+  export P4A_TEST_ON_TERMINAL=1 FAKE_SSH_EXIT=4
+  run p4a shell hello-world
+  [ "$status" -eq 4 ]
+  # ssh's options and host, then the words the remote bash runs.
+  [ "$(sed -n '1,15p;/^remote:$/,$p' "$FAKE_SSH_DIR/calls")" = "-q
+-t
+-p
+50123
+-i
+/c/Users/me/.local/share/containers/podman/machine/machine
+-o
+IdentitiesOnly=yes
+-o
+StrictHostKeyChecking=no
+-o
+UserKnownHostsFile=/dev/null
+-o
+LogLevel=ERROR
+core@127.0.0.1
+remote:
+podman
+exec
+-i
+-t
+-w
+/workspace/hello-world
+podman4ai-hello-world
+p4a-session
+bash
+-l
+--" ]
+  [ -z "$(sandbox_calls | grep '^exec -i')" ]
+}
+
+@test "claude on a terminal goes over ssh, and the Sandbox gets each argument whole" {
+  hello_world_running
+  claude_session no
+  export P4A_TEST_ON_TERMINAL=1
+  run p4a claude hello-world --model "opus 5" --append-system-prompt "it's \$HOME; \"quoted\""
+  [ "$status" -eq 0 ]
+  [ "$(sed -n '/^remote:$/,/^--$/p' "$FAKE_SSH_DIR/calls")" = "remote:
+podman
+exec
+-i
+-t
+-w
+/workspace/hello-world
+podman4ai-hello-world
+p4a-session
+env
+TERM=xterm-256color
+tmux
+new-session
+-A
+-s
+claude
+-c
+/workspace/hello-world
+claude
+--model
+opus 5
+--append-system-prompt
+it's \$HOME; \"quoted\"
+--" ]
+}
+
+@test "shell on a terminal says how to check the Sandbox machine when Podman doesn't say how to reach it over ssh" {
+  hello_world_running
+  fake_podman "machine inspect --format {{.SSHConfig.Port}}|{{.SSHConfig.IdentityPath}}|{{.SSHConfig.RemoteUsername}} podman4ai" --stdout "||"
+  export P4A_TEST_ON_TERMINAL=1
+  run p4a shell hello-world
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"didn't say how to reach the Sandbox machine over ssh"* ]]
+  [[ "$output" == *"podman machine inspect podman4ai"* ]]
+  [ ! -s "$FAKE_SSH_DIR/calls" ]
+}
+
 # The arguments of the call that ran tmux on the terminal, as a JSON array.
 claude_session_call() {
   _calls 'c.args.includes("p4a-session") ? JSON.stringify(c.args) : null'

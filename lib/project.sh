@@ -530,17 +530,28 @@ _p4a_sandbox_running() {
 # _p4a_exec_in_sandbox PROJECT COMMAND...
 # Run COMMAND in PROJECT's running Sandbox, in its source folder, on this
 # terminal if there is one, and return its exit code. p4a-session (in the
-# Base image) hands the Agent token to Claude Code.
+# Base image) hands the Agent token to Claude Code. On a terminal it goes
+# over ssh, so Windows' ConPTY doesn't garble the screen.
 _p4a_exec_in_sandbox() {
-  local project=$1 source_dir
+  local project=$1 source_dir sandbox
   shift
   source_dir="$(_p4a_source_dir "$project")"
-  local tty=()
-  [[ -t 0 && -t 1 ]] && tty=(-t)
+  sandbox="$(_p4a_sandbox_name "$project")"
   local status=0
-  p4a_sandbox_podman exec -i "${tty[@]}" -w "$source_dir" "$(_p4a_sandbox_name "$project")" \
-    p4a-session "$@" || status=$?
+  if _p4a_on_terminal; then
+    p4a_sandbox_podman_on_terminal exec -i -t -w "$source_dir" "$sandbox" \
+      p4a-session "$@" || status=$?
+  else
+    p4a_sandbox_podman exec -i -w "$source_dir" "$sandbox" \
+      p4a-session "$@" || status=$?
+  fi
   return "$status"
+}
+
+# Succeed if p4a's input and output are both a terminal. The unit tests
+# have none, so they set P4A_TEST_ON_TERMINAL=1 to pretend.
+_p4a_on_terminal() {
+  [[ ${P4A_TEST_ON_TERMINAL:-} == 1 ]] || [[ -t 0 && -t 1 ]]
 }
 
 # Print where PROJECT's source is in its Sandbox.

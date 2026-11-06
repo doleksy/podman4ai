@@ -135,6 +135,8 @@ Closing the terminal leaves the session running. Run `p4a claude hello-world` ag
 
 `p4a shell hello-world` stays a plain shell beside the session. From there, `tmux attach -t claude` reaches the session too.
 
+On a terminal, `p4a claude` and `p4a shell` reach the Sandbox through Git Bash's own `ssh` into the Sandbox machine, then `podman exec` there, rather than through `podman.exe` (ADR 0008). Windows passes a native program like `podman.exe` through its console layer, ConPTY, which garbles Claude Code's screen in tmux. Without a terminal, such as in a script, `p4a shell <project> -- <command>` still uses `podman.exe`.
+
 ### VS Code and dev servers
 
 `p4a code hello-world` opens VS Code attached to the project's Sandbox, in its source folder, with the editor engine, extensions and terminal running inside the Sandbox as `agent`. `p4a port hello-world 3000` publishes the Sandbox's port 3000 at `http://localhost:3000` on Windows only, and `p4a unport hello-world 3000` takes it back. `p4a code` runs a VS Code of its own, with its own settings, sign-ins and extensions, so none of your everyday ones (or your Windows git credentials) reach a Sandbox. See [docs/vscode.md](docs/vscode.md), including what a dev server needs.

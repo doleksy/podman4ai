@@ -36,6 +36,14 @@ setup() {
   # Like Podman, removing the machine deletes its config.
   fake_podman "machine rm" --remove "$SANDBOX_CONFIG_DIR/podman4ai.json"
 
+  # How to reach the Sandbox machine over ssh, and the stand-in ssh's log.
+  fake_podman "machine inspect --format {{.SSHConfig.Port}}|{{.SSHConfig.IdentityPath}}|{{.SSHConfig.RemoteUsername}} podman4ai" \
+    --stdout '50123|C:\Users\me\.local\share\containers\podman\machine\machine|core'
+  export FAKE_SSH_DIR="$BATS_TEST_TMPDIR/ssh"
+  mkdir -p "$FAKE_SSH_DIR"
+  : > "$FAKE_SSH_DIR/calls"
+  unset P4A_TEST_ON_TERMINAL FAKE_SSH_EXIT
+
   export FAKE_POWERSHELL_DIR="$BATS_TEST_TMPDIR/powershell"
   mkdir -p "$FAKE_POWERSHELL_DIR/rules"
   : > "$FAKE_POWERSHELL_DIR/calls"
