@@ -36,9 +36,10 @@ Secrets:
                           Claude (create one with 'claude setup-token')
   repo-token <project>    a fine-grained token from GitHub for that project's one
                           repository. It needs Contents, Pull requests and
-                          Issues: read and write. The README's Secrets section
-                          lists the recommended and optional permissions. Set
-                          it before 'p4a new' to clone a private repository.
+                          Issues, each Read and write. The README's "Repo
+                          token permissions" lists the recommended and
+                          optional permissions. Set it before 'p4a new' to
+                          clone a private repository.
 
 Existing Sandboxes get a new value at their next 'p4a stop', then
 'p4a start', which recreates the Sandbox (keeping its source and Claude

@@ -24,7 +24,7 @@ secret_create_stdin() {
   # The help wraps, so compare with line breaks and indents folded to spaces.
   local help
   help=$(tr -s ' \n' '  ' <<< "$output")
-  [[ "$help" == *"Contents, Pull requests and Issues: read and write"* ]]
+  [[ "$help" == *"Contents, Pull requests and Issues, each Read and write"* ]]
   [[ "$help" == *"README"* && "$help" == *"optional permissions"* ]]
 }
 
