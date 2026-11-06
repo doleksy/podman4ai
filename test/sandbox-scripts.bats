@@ -243,7 +243,12 @@ JSON
 # Claude Code installs a plugin pinned to a git commit under its version
 # (cache/MARKETPLACE/PLUGIN/VERSION), but looks for it in a seed under the
 # commit's first 12 hex digits, so it doesn't load from the seed.
+# The script runs in the Linux Base image, but here node runs it on the
+# Host. Windows lets node make symlinks only with Developer Mode on (#60).
 @test "p4a-install-plugins makes each installed plugin findable in the seed under its commit too" {
+  mkdir "$BATS_TEST_TMPDIR/probe"
+  (cd "$BATS_TEST_TMPDIR/probe" && node -e 'require("fs").symlinkSync("a", "b")' 2>/dev/null) \
+    || skip "node can't make symlinks on this Host; on Windows, turn on Developer Mode to run this"
   fake_claude
   one_plugin_settings
   local seed="$BATS_TEST_TMPDIR/seed"
