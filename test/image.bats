@@ -255,3 +255,18 @@ PROXY_LOG_WITH_REFUSAL='2026-10-25T23:04:46.000Z listening on port 8888
   [ -z "$(sandbox_calls | grep "^$BASE_BUILD")" ]
   podman_calls | grep -q "rm -f podman4ai-build-proxy podman4ai-build-netns$"
 }
+
+@test "an installed p4a builds from its own folder, so editing another copy doesn't change it" {
+  build_can_run
+  local installed="$BATS_TEST_TMPDIR/installed"
+  mkdir -p "$installed"
+  cp -r "$P4A_REPO/bin" "$P4A_REPO/lib" "$P4A_REPO/share" "$P4A_REPO/images" "$installed/"
+  echo "installed-copy.example" >> "$installed/share/build-allowlist"
+
+  run "$installed/bin/p4a" image build
+  [ "$status" -eq 0 ]
+  sandbox_calls | grep -q -F "$(_native_path "$installed/images/base")"
+  sandbox_calls | grep -q -F "$(_native_path "$installed/images/proxy")"
+  [ -z "$(sandbox_calls | grep -F "$(_native_path "$P4A_REPO/images")")" ]
+  proxy_allowlist | grep -qx "installed-copy.example"
+}
