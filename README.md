@@ -4,23 +4,18 @@ A secure environment on a Windows workstation where all AI agent work happens in
 
 ## The Launcher: `p4a`
 
-`p4a` is a Bash program run from Git Bash on the Host. Run it from an installed clone that you only update by pulling reviewed changes, never from a copy an Agent edits (ADR 0002). Put its `bin` folder on your PATH:
+`p4a` is a Bash program run from Git Bash on the Host. Run it from an installed clone that you only update by pulling reviewed, merged changes, never from a copy an Agent edits (ADR 0002). `p4a` uses the files next to it, so editing any other copy doesn't change it. Put its `bin` folder on your PATH:
 
 ```bash
 git clone https://github.com/doleksy/podman4ai.git ~/podman4ai
 echo 'export PATH="$HOME/podman4ai/bin:$PATH"' >> ~/.bashrc
 ```
 
+To update it: `git -C ~/podman4ai pull --ff-only`. If that changed anything under `images/`, run `p4a image build`, then `p4a recreate --all`.
+
 ### One-time setup (needs admin)
 
-1. Enable the Hyper-V Windows feature.
-2. In an admin PowerShell, join "Hyper-V Administrators": `Add-LocalGroupMember -SID S-1-5-32-578 -Member $env:USERNAME`
-3. Sign out of Windows and back in. Check with `whoami /groups | findstr /i hyper-v`.
-4. Open Git Bash with **Run as administrator** and run `p4a machine create`.
-
-Step 4 needs admin because the first time Podman creates a Hyper-V machine, it relaunches itself as administrator. That relaunched copy ignores the settings that keep Windows drives out of the Sandbox machine. From an admin shell no relaunch happens. If you run it from a normal shell, `p4a` notices the shared drives, removes the machine and tells you to rerun it as administrator.
-
-Everything else works from a normal Git Bash.
+[docs/setup.md](docs/setup.md) takes a fresh Windows 10 Pro machine to a working Sandbox: the Host programs, the admin steps (enable Hyper-V, join "Hyper-V Administrators", create the Sandbox machine from an admin Git Bash), the images, the tokens and a first project. Everything after the admin steps works from a normal Git Bash.
 
 `p4a machine create` also turns off Hyper-V dynamic memory, which Podman turns on, so the Sandbox machine always has its full 12 GB. Otherwise one Sandbox filling its memory limit can run the whole machine out of memory, and the kernel then kills a process in any container. For a machine created before p4a did this, `p4a machine status` shows a warning with the fix: `p4a machine stop`, then `Set-VMMemory -VMName podman4ai -DynamicMemoryEnabled $false` in PowerShell, then `p4a machine start`.
 
@@ -133,7 +128,7 @@ p4a claude hello-world --dangerously-skip-permissions
 
 Closing the terminal leaves the session running. Run `p4a claude hello-world` again, from any Git Bash, to come back to it. In VS Code, open a Git Bash terminal (the default PowerShell one can't run `p4a`). Arguments given while a session is already running aren't used (`p4a` says so): quit Claude Code there first to start a new session with them. To leave without closing the terminal, detach with `Ctrl-b d`. When Claude Code exits, the session ends.
 
-`p4a shell hello-world` stays a plain shell beside the session. From there, `tmux attach -t claude` reaches the session too.
+`p4a shell hello-world` stays a plain shell beside the session. From there, `tmux attach -t claude` reaches the session too. The [tmux cheat sheet](docs/tmux.md) covers detaching, scrolling and splitting.
 
 On a terminal, `p4a claude` and `p4a shell` reach the Sandbox through Git Bash's own `ssh` into the Sandbox machine, then `podman exec` there, rather than through `podman.exe` (ADR 0008). Windows passes a native program like `podman.exe` through its console layer, ConPTY, which garbles Claude Code's screen in tmux. Without a terminal, such as in a script, `p4a shell <project> -- <command>` still uses `podman.exe`.
 
@@ -224,7 +219,14 @@ p4a recreate hello-world      # moves the Sandbox onto it
 
 `p4a` selects the Hyper-V provider and the Sandbox machine for its own Podman calls only. Plain `podman` in other shells keeps using its default machine.
 
-## Running the unit tests
+## Running the tests
+
+There are two levels:
+
+- **Unit tests** (`test/run.sh`): fast enough to run on every change, anywhere, including inside a Sandbox. CI runs them too.
+- **Integration tests**, the Host-only checks (`test/host/`): run against the real Sandbox machine, on the Host only, before merging.
+
+### Unit tests
 
 ```bash
 test/run.sh
@@ -250,7 +252,7 @@ Over about 2 seconds (40 ms a process) means something is slowing process starts
 
 CI runs `test/run.sh`, so the linting and all the unit tests, on Linux for every pull request and every push to `main` ([`.github/workflows/unit-tests.yml`](.github/workflows/unit-tests.yml)). CI pins shellcheck 0.11.0; other versions can report different things, so match it locally (`shellcheck --version`). CI doesn't run the Host-only checks below; they need the real Sandbox machine, so run them by hand.
 
-### Host-only checks
+### Integration tests: the Host-only checks
 
 These run against the real Sandbox machine, which must be running, and take several minutes. Run them before merging any change to the Launcher, images or Egress proxy:
 
@@ -267,3 +269,20 @@ P4A_TEST_REPO=owner/repo test/host/sign-in.sh  # private clone, Claude answers, 
 `test/host/isolation.sh` needs both images built. It creates two throwaway projects, `spoon-knife` (from `octocat/Spoon-Knife`) and `test-repo1` (from `octocat/test-repo1`), and runs each check inside a Sandbox with `p4a shell <project> -- <command>`. The checks cover: non-allowlisted domains refused and logged, allowlisted domains working through the proxy, `p4a blocked` listing a refused domain, `p4a allow` opening a domain within seconds for its own project only and `p4a disallow` closing it again, no outside DNS, no Host paths, non-root user with no capabilities, no sudo and no-new-privileges, no Podman socket, no route from one Sandbox to another or to its proxy, the Claude baseline (its plugins loaded from the image by a real Claude session, with nothing refused by the Egress proxy, context-mode's doctor passing, memory staying in its own project), `p4a recreate` giving a running Sandbox the current Base image and keeping it running with its uncommitted work and Claude config, and the process and memory limits. The Claude session check sends one short prompt on the Agent token. Afterwards it removes both projects, their volumes and their network, even after a failure or Ctrl-C. It refuses to start if anything with those names already exists. To use other public repos, set `P4A_ISOLATION_REPO_A` and `P4A_ISOLATION_REPO_B` to `owner/repo`. It refuses to run inside a Sandbox.
 
 `test/host/sign-in.sh` checks the sign-ins on real tokens, so it needs a repository of your own and is skipped unless `P4A_TEST_REPO` names one. To set it up once: create a private repository you can push to, used only for this check; create a [fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to that repository, with Contents, Pull requests and Issues read and write; and store it with `p4a secret set repo-token <project>`, where the project is the repository name in lower case. The Agent token must be stored too. Then run it with `P4A_TEST_REPO=owner/repo test/host/sign-in.sh`. It creates the project with `p4a new`, checks that the private repository clones, that `claude -p` answers, that a commit made in the Sandbox carries the Host's git name and email, and that a uniquely named `p4a-check-…` branch pushed from the Sandbox shows up on GitHub and is deleted again, that `gh issue list` and `gh pr list` in the Sandbox can read the repository, and that no token value appears in its output. Afterwards it deletes the test branch if it's still there and removes the project with `p4a rm`, keeping its Repo token for the next run, even after a failure or Ctrl-C. It stops without touching anything if the project already exists, and refuses to run inside a Sandbox. Fine-grained tokens expire: if the clone or push starts failing, an expired token is the likely cause, so make a new one and store it again.
+
+## Working on podman4ai itself
+
+podman4ai is developed like any other project: from inside its own Sandbox. Claude Code isn't run directly on the Host for project work.
+
+1. Once: store the project's Repo token with `p4a secret set repo-token podman4ai` (see [Secrets](#secrets)), then `p4a new doleksy/podman4ai`.
+2. `p4a claude podman4ai`. The Agent edits the source in the Sandbox, runs the unit tests there (`test/run.sh`), and pushes a branch and opens a pull request. The Base image has no shellcheck, so `test/run.sh` skips linting in a Sandbox and CI does it.
+3. Before merging, run the integration tests on the Host against the pull request, from a review clone kept only for this (never the installed clone, and never one an Agent edits):
+
+   ```bash
+   git clone https://github.com/doleksy/podman4ai.git ~/podman4ai-review   # once
+   cd ~/podman4ai-review && git fetch origin pull/<number>/head && git checkout --detach FETCH_HEAD
+   test/host/isolation.sh   # and whichever other Host-only checks the change touches
+   ```
+
+   This runs code an Agent wrote on the Host, so read the whole diff first. Each check runs the `p4a` from its own clone, so this tests the pull request's Launcher. If the change touches `images/`, build them from the review clone first (`bin/p4a image build`). Images have the same names whichever clone builds them, so this replaces the images every project uses: once the checks are done, merged or not, rebuild them from the installed clone (update it first if you merged) and run `p4a recreate --all` for any project recreated in between.
+4. Merge on GitHub, then update the installed clone (see [The Launcher](#the-launcher-p4a)).
