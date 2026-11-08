@@ -18,6 +18,16 @@ secret_create_stdin() {
   [[ "$output" == *"Stored the Agent token"* ]]
 }
 
+@test "secret --help lists the Repo token's required permissions and points to the README for the optional ones" {
+  run p4a secret --help
+  [ "$status" -eq 0 ]
+  # The help wraps, so compare with line breaks and indents folded to spaces.
+  local help
+  help=$(tr -s ' \n' '  ' <<< "$output")
+  [[ "$help" == *"Contents, Pull requests and Issues, each Read and write"* ]]
+  [[ "$help" == *"README"* && "$help" == *"optional permissions"* ]]
+}
+
 @test "secret set repo-token stores a project's own Repo token, before or after p4a new" {
   machines "podman4ai hyperv running"
   run p4a secret set repo-token hello-world <<< "github_pat_canary"
