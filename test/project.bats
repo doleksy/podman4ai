@@ -509,10 +509,10 @@ podman4ai-hello-world-repo-token" ]
   hello_world_mounts "podman4ai-agent-token=old-id
 podman4ai-hello-world-repo-token=id-1"
   fake_podman "--connection podman4ai container inspect --format {{.State.Running}} podman4ai-hello-world" --stdout true
-  run p4a start hello-world
+  run --separate-stderr p4a start hello-world
   [ "$status" -eq 0 ]
   [ -z "$(sandbox_calls | grep -E '^(rm|create) ')" ]
-  [[ "$output" == *"p4a stop hello-world"* ]]
+  [[ "$stderr" == *"p4a: warning: the Sandbox for hello-world is running with old tokens"$'\n'"  fix: run 'p4a stop hello-world', then 'p4a start hello-world'"* ]]
 }
 
 @test "the Sandbox's git uses the developer's name and email from the Host's git config" {

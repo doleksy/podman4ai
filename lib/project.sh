@@ -272,7 +272,8 @@ _p4a_refresh_proxy() {
   grep -q '^P4A_ALLOWLIST_FILE=' <<< "$env" && return 0
 
   if [[ "$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$proxy")" == true ]]; then
-    p4a_note "the Egress proxy for $project is from an older podman4ai and can't apply 'p4a allow' changes. To update it, run 'p4a stop $project', then 'p4a start $project'"
+    p4a_warn "the Egress proxy for $project is from an older podman4ai and can't apply 'p4a allow' changes" \
+      "run 'p4a stop $project', then 'p4a start $project'"
     return 0
   fi
   p4a_note "Recreating the Egress proxy for $project so it can apply 'p4a allow' changes. Its earlier log is lost."
@@ -368,7 +369,8 @@ _p4a_refresh_sandbox_tokens() {
   [[ "$(printf '%s\n' "${want[@]}" | sort)" == "$(grep -v '^$' <<< "$have" | sort)" ]] && return 0
 
   if [[ "$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$sandbox")" == true ]]; then
-    p4a_note "the Sandbox for $project is running with old tokens. To give it the current ones, run 'p4a stop $project', then 'p4a start $project'"
+    p4a_warn "the Sandbox for $project is running with old tokens" \
+      "run 'p4a stop $project', then 'p4a start $project'"
     return 0
   fi
   _p4a_check_sandbox_can_be_created "$project"

@@ -252,40 +252,41 @@ load helpers
 
 @test "status warns when another machine runs alongside the Sandbox machine" {
   machines "podman4ai hyperv running" "podman-machine-default wsl running"
-  run p4a machine status
+  run --separate-stderr p4a machine status
   [ "$status" -eq 0 ]
   [[ "$output" == *"podman4ai"*"running"* ]]
-  [[ "$output" == *"podman-machine-default is also running"* ]]
+  [[ "$stderr" == *"p4a: warning: the Podman machine podman-machine-default is also running"$'\n'"  fix: run 'podman machine stop podman-machine-default'"* ]]
+  [[ "$output" != *"warning"* ]]
 }
 
 @test "status warns, with the fix, when a running Sandbox machine has Hyper-V dynamic memory on" {
   machines "podman4ai hyperv running"
   dynamic_memory True
-  run p4a machine status
+  run --separate-stderr p4a machine status
   [ "$status" -eq 0 ]
   [[ "$output" == *"podman4ai: running"* ]]
-  [[ "$output" == *"warning:"*"dynamic memory is on"* ]]
-  [[ "$output" == *"p4a machine stop"*"Set-VMMemory -VMName podman4ai -DynamicMemoryEnabled \$false"*"p4a machine start"* ]]
+  [[ "$stderr" == *"p4a: warning: Hyper-V dynamic memory is on"* ]]
+  [[ "$stderr" == *$'\n'"  fix: "*"p4a machine stop"*"Set-VMMemory -VMName podman4ai -DynamicMemoryEnabled \$false"*"p4a machine start"* ]]
 }
 
 @test "status warns, with the fix, when a stopped Sandbox machine has Hyper-V dynamic memory on" {
   machines "podman4ai hyperv stopped"
   dynamic_memory True
-  run p4a machine status
+  run --separate-stderr p4a machine status
   [ "$status" -eq 0 ]
   [[ "$output" == *"podman4ai: stopped"* ]]
-  [[ "$output" == *"warning:"*"dynamic memory is on"* ]]
-  [[ "$output" == *"Set-VMMemory -VMName podman4ai -DynamicMemoryEnabled \$false"*"p4a machine start"* ]]
+  [[ "$stderr" == *"p4a: warning: Hyper-V dynamic memory is on"* ]]
+  [[ "$stderr" == *$'\n'"  fix: "*"Set-VMMemory -VMName podman4ai -DynamicMemoryEnabled \$false"*"p4a machine start"* ]]
 }
 
 @test "status still warns about dynamic memory when Podman in the running Sandbox machine doesn't answer" {
   machines "podman4ai hyperv running"
   dynamic_memory True
   podman_not_answering
-  run p4a machine status
+  run --separate-stderr p4a machine status
   [ "$status" -eq 1 ]
-  [[ "$output" == *"warning:"*"dynamic memory is on"* ]]
-  [[ "$output" == *"doesn't answer"* ]]
+  [[ "$stderr" == *"p4a: warning: Hyper-V dynamic memory is on"* ]]
+  [[ "$stderr" == *"doesn't answer"* ]]
 }
 
 @test "status prints no dynamic-memory warning when it's off" {
@@ -302,10 +303,10 @@ load helpers
   machines "podman4ai hyperv stopped"
   fake_powershell "Get-VMMemory" --exit 1 \
     --stderr "Get-VMMemory : You do not have the required permission to complete this task."
-  run p4a machine status
+  run --separate-stderr p4a machine status
   [ "$status" -eq 0 ]
   [[ "$output" == *"podman4ai: stopped"* ]]
-  [[ "$output" == *"warning: couldn't check"*"dynamic memory"* ]]
+  [[ "$stderr" == *"p4a: warning: couldn't check"*"dynamic memory"*$'\n'"  fix: "*"Get-VMMemory -VMName podman4ai"* ]]
 }
 
 @test "status treats an unexpected answer from Hyper-V as unchecked" {
@@ -313,7 +314,7 @@ load helpers
   dynamic_memory ""
   run p4a machine status
   [ "$status" -eq 0 ]
-  [[ "$output" == *"warning: couldn't check"*"dynamic memory"* ]]
+  [[ "$output" == *"p4a: warning: couldn't check"*"dynamic memory"*$'\n'"  fix: "* ]]
 }
 
 @test "status doesn't ask Hyper-V about a Sandbox machine that doesn't exist" {

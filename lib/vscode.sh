@@ -134,5 +134,6 @@ _p4a_warn_about_ssh_agent() {
   local status
   status="$(p4a_powershell "(Get-Service ssh-agent -ErrorAction SilentlyContinue).Status" 2>/dev/null)" || return 0
   [[ ${status//$'\r'/} == Running ]] || return 0
-  p4a_note "the Windows ssh-agent is running, and VS Code passes it into the Sandbox, so an Agent could use your SSH keys while VS Code is attached. To stop it, run 'Stop-Service ssh-agent' in an admin PowerShell."
+  p4a_warn "the Windows ssh-agent is running, and VS Code passes it into the Sandbox, so an Agent could use your SSH keys while VS Code is attached" \
+    "run 'Stop-Service ssh-agent' in an admin PowerShell"
 }

@@ -17,6 +17,13 @@ p4a_usage_error() {
   exit 2
 }
 
+# p4a_warn MESSAGE [FIX]
+# Say something is wrong but p4a carries on and, when known, how to fix it.
+p4a_warn() {
+  echo "p4a: warning: $1" >&2
+  [[ -z ${2:-} ]] || echo "  fix: $2" >&2
+}
+
 p4a_note() {
   echo "p4a: $*" >&2
 }
