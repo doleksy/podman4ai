@@ -168,7 +168,8 @@ _p4a_start_forwarders() {
   _p4a_read_forwarders "$1" forwarders
   (( ${#forwarders[@]} )) || return 0
   p4a_sandbox_podman start "${forwarders[@]}" >/dev/null \
-    || p4a_note "couldn't publish every port of $1 (see podman's message above); is a Windows program already using one? Once it's free, run 'p4a port $1 <port>' to try again"
+    || p4a_warn "couldn't publish every port of $1 (see podman's message above)" \
+      "if a Windows program is using one, free it, then run 'p4a port $1 <port>' again"
 }
 
 # Exit unless PORT is a TCP port number.
