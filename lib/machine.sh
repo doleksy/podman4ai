@@ -201,7 +201,7 @@ p4a_machine_status() {
   if [[ $P4A_SANDBOX_STATE == running ]]; then
     local other
     for other in "${P4A_OTHERS_RUNNING[@]}"; do
-      echo "  warning: the Podman machine $other is also running; stop it with 'podman machine stop $other'"
+      p4a_warn "the Podman machine $other is also running" "run 'podman machine stop $other'"
     done
   fi
 }
@@ -211,11 +211,12 @@ p4a_machine_status() {
 _p4a_report_dynamic_memory() {
   local on fix
   if ! on="$(p4a_hyperv_dynamic_memory)"; then
-    echo "  warning: couldn't check whether Hyper-V dynamic memory is off for the machine; check it in PowerShell with 'Get-VMMemory -VMName $P4A_MACHINE'"
+    p4a_warn "couldn't check whether Hyper-V dynamic memory is off for the machine" \
+      "check it in PowerShell with 'Get-VMMemory -VMName $P4A_MACHINE'"
     return 0
   fi
   [[ $on == True ]] || return 0
-  fix="run '$P4A_HYPERV_FIXED_MEMORY_COMMAND' in PowerShell, then 'p4a machine start'"
-  [[ $P4A_SANDBOX_STATE == stopped ]] || fix="stop it with 'p4a machine stop', $fix"
-  echo "  warning: Hyper-V dynamic memory is on, so the machine may not get its full $P4A_MACHINE_MEMORY_GB GB; $fix"
+  fix="'$P4A_HYPERV_FIXED_MEMORY_COMMAND' in PowerShell, then 'p4a machine start'"
+  [[ $P4A_SANDBOX_STATE == stopped ]] || fix="'p4a machine stop', then $fix"
+  p4a_warn "Hyper-V dynamic memory is on, so the machine may not get its full $P4A_MACHINE_MEMORY_GB GB" "run $fix"
 }

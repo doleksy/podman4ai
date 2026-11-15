@@ -6,6 +6,10 @@
 
 P4A_REPO="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 
+# For `run --separate-stderr`, which tests use to check that a warning goes
+# to stderr rather than stdout.
+bats_require_minimum_version 1.5.0
+
 setup() {
   # In the form node understands, worked out here once rather than by the
   # stand-in podman on every call: it runs hundreds of times, and each extra

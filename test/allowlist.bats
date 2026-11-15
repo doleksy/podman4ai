@@ -254,10 +254,10 @@ start podman4ai-hello-world-proxy" ]
   hello_world_exists
   hello_world_has_old_proxy
   proxy_running hello-world
-  run p4a start hello-world
+  run --separate-stderr p4a start hello-world
   [ "$status" -eq 0 ]
   [ -z "$(sandbox_calls | grep -E '^(rm|create) ')" ]
-  [[ "$output" == *"p4a stop hello-world"* ]]
+  [[ "$stderr" == *"p4a: warning: the Egress proxy for hello-world is from an older podman4ai"*$'\n'"  fix: run 'p4a stop hello-world', then 'p4a start hello-world'"* ]]
 }
 
 # hello-world's Egress proxy log.

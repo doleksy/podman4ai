@@ -96,10 +96,9 @@ hello_world_for_code() {
 @test "code warns when the Windows ssh-agent is running, which VS Code passes into the Sandbox" {
   hello_world_for_code
   fake_powershell "Get-Service ssh-agent" --stdout Running
-  run p4a code hello-world
+  run --separate-stderr p4a code hello-world
   [ "$status" -eq 0 ]
-  [[ "$output" == *"ssh-agent"* ]]
-  [[ "$output" == *"Stop-Service ssh-agent"* ]]
+  [[ "$stderr" == *"p4a: warning: the Windows ssh-agent is running"*$'\n'"  fix: run 'Stop-Service ssh-agent' in an admin PowerShell"* ]]
 }
 
 @test "code's settings check skips commented-out lines, takes the last of a repeated setting, and accepts a full path to podman" {
