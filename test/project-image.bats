@@ -307,6 +307,18 @@ podman4ai-hello-world-repo-token=id-1"
   sandbox_calls | has_line "image rm --ignore localhost/podman4ai-project-hello-world"
 }
 
+@test "rm warns, and still removes the project, when it can't delete the Project image" {
+  hello_world_exists
+  hello_world_containerfile "$GO_CONTAINERFILE"
+  fake_podman "--connection podman4ai image rm --ignore localhost/podman4ai-project-hello-world" --exit 2 \
+    --stderr "Error: image is in use by a container"
+  run --separate-stderr p4a rm hello-world <<< "hello-world"
+  [ "$status" -eq 0 ]
+  [ ! -e "$P4A_CONFIG_DIR/projects/hello-world.Containerfile" ]
+  [[ "$stderr" == *"image is in use by a container"*"p4a: warning: couldn't delete the Project image localhost/podman4ai-project-hello-world"*$'\n'"  fix: "*"'p4a podman image rm localhost/podman4ai-project-hello-world'"* ]]
+  [[ "$output" != *"warning"* ]]
+}
+
 @test "rm without confirmation keeps the Containerfile and the Project image" {
   hello_world_exists
   hello_world_containerfile "$GO_CONTAINERFILE"

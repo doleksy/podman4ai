@@ -143,7 +143,8 @@ EOF
   local project_image
   project_image="$(_p4a_project_image "$project")"
   p4a_sandbox_podman image rm --ignore "$project_image" >/dev/null \
-    || p4a_note "couldn't delete the Project image $project_image; delete it later with 'p4a podman image rm $project_image'"
+    || p4a_warn "couldn't delete the Project image $project_image (see podman's message above)" \
+      "run 'p4a podman image rm $project_image'"
   rm -f "$(_p4a_projects_dir)/$project.conf" "$(_p4a_additions_file "$project")" "$(_p4a_containerfile "$project")"
   echo "Removed the project $project, with its volumes and Host settings."
 }

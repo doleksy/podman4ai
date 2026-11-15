@@ -191,6 +191,18 @@ start podman4ai-hello-world-port-3000" ]
   [[ "$output" == *"Published port 3000"* ]]
 }
 
+@test "start warns, and still succeeds, when a port's forwarder can't start" {
+  hello_world_exists
+  hello_world_state false
+  hello_world_ports 3000
+  fake_podman "--connection podman4ai start podman4ai-hello-world-port-3000" --exit 125 \
+    --stderr "Error: unable to start container: address already in use"
+  run --separate-stderr p4a start hello-world
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"address already in use"*"p4a: warning: couldn't publish every port of hello-world"*$'\n'"  fix: "*"'p4a port hello-world <port>' again"* ]]
+  [[ "$output" != *"warning"* ]]
+}
+
 @test "recreate removes nothing if podman can't list a project's ports" {
   hello_world_exists
   hello_world_state true
