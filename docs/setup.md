@@ -117,3 +117,20 @@ p4a recreate --all
 ## After a Windows restart, or when something's off
 
 `p4a machine status` says what's wrong and how to fix it. The usual fix is `p4a machine stop`, then `p4a machine start`.
+
+## If Hyper-V says an object "was not found"
+
+If `p4a machine create` fails at `Resize-VHD`, or `Get-VM` fails even in an admin PowerShell, with "Hyper-V encountered an error trying to access an object ... because the object was not found", Windows may be missing Hyper-V's registration records. The error's hint about the Virtual Machine Management service is misleading. Check in PowerShell:
+
+```powershell
+Get-CimInstance -Namespace root\interop -ClassName Msvm_RegisteredProfile | Measure-Object
+```
+
+If the count is 0, restore the records in an admin PowerShell, then rerun `p4a machine create`:
+
+```powershell
+mofcomp C:\Windows\System32\WindowsVirtualization.V2.mof
+Restart-Service vmms -Force   # stops any running Hyper-V VMs
+```
+
+If that doesn't fix it, turn the Hyper-V feature off, restart, turn it back on and restart again.
