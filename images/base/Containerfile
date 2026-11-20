@@ -124,6 +124,13 @@ RUN version="$(latest-github-release dandavison/delta)" \
 # tmux with the mouse on and the project's name in the status bar.
 COPY tmux.conf /etc/tmux.conf
 
+# A bash prompt with the project's name and, in a git repository, the
+# branch and whether it has changes (prompt.bash). It uses the prompt
+# helper Debian's git package ships; fail the build if that ever moves.
+COPY prompt.bash /usr/local/share/podman4ai/prompt.bash
+RUN [ -r /usr/lib/git-core/git-sh-prompt ] \
+ && echo '. /usr/local/share/podman4ai/prompt.bash' >> /home/agent/.bashrc
+
 # Signing in (the tokens are mounted at /run/secrets when a Sandbox is
 # created, never stored in the image): p4a-session hands the Agent token to
 # Claude Code, and git signs in to GitHub, over HTTPS only, with the
