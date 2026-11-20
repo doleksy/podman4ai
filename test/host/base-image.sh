@@ -20,7 +20,8 @@
 # 4. Claude Code's self-updater, telemetry and error reporting are off.
 # 5. tmux has the mouse on, shows the project's name, and runs in a UTF-8
 #    locale (C.UTF-8, or en_US.UTF-8 if a terminal passes it in), so it
-#    draws Claude Code's Unicode.
+#    draws Claude Code's Unicode. bash's prompt shows the project's name,
+#    the directory, and the git branch with * when it has changes.
 # 6. The image's labels say when it was built and which Claude Code it has.
 #
 # test/host/image-build.sh checks that the build itself went only through
@@ -109,7 +110,7 @@ for var in DISABLE_AUTOUPDATER DISABLE_TELEMETRY DISABLE_ERROR_REPORTING; do
   if [[ "$(in_sandbox printenv "$var")" == 1 ]]; then pass "$var=1"; else fail "$var isn't 1 in the Sandbox"; fi
 done
 
-echo "--- 5. tmux"
+echo "--- 5. tmux and the prompt"
 status_left="$(in_sandbox sh -c 'tmux new -d -s p4a-check && tmux show -gv status-left; tmux show -gv mouse; tmux kill-server' 2>&1)"
 if [[ $status_left == *"$project"* ]]; then pass "tmux's status bar shows $project"; else fail "tmux's status bar doesn't show $project: $status_left"; fi
 if [[ $(tail -1 <<< "$status_left") == on ]]; then pass "tmux has the mouse on"; else fail "tmux's mouse isn't on"; fi
@@ -127,6 +128,11 @@ for lang in C.UTF-8 en_US.UTF-8; do
     tmux -L p4a-check kill-server' 2>/dev/null || true)"
   if [[ $drawn == *⏺* ]]; then pass "tmux draws ⏺ under $lang"; else fail "tmux doesn't draw ⏺ under $lang"; fi
 done
+# The prompt (prompt.bash), expanded as an interactive shell in the
+# project's clone would show it, after making a change there.
+# shellcheck disable=SC2016 # expanded by bash in the Sandbox
+prompt="$(in_sandbox bash -ic 'cd /workspace/Hello-World && echo x >> README && echo "${PS1@P}"; git checkout -q README' 2>/dev/null)"
+if [[ $prompt == *"$project"*:/workspace/Hello-World*"(master *)"* ]]; then pass "the prompt shows $project, the directory and the branch with changes"; else fail "the prompt is '$prompt'"; fi
 
 echo "--- 6. The image's labels"
 created="$(p4a podman image inspect --format '{{index .Labels "org.opencontainers.image.created"}}' localhost/podman4ai-base)"
