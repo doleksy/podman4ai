@@ -203,15 +203,11 @@ _p4a_git_identity() {
 }
 
 # Print the secrets PROJECT's Sandbox mounts, one "SECRET FILE" line each:
-# the Agent token, and the project's own Repo token if it has one. Never
-# any other project's.
+# the Agent token, and the project's own Project secrets (its Repo token
+# among them). Never any other project's.
 _p4a_sandbox_secrets() {
-  local repo_token
-  repo_token="$(p4a_repo_token_secret "$1")"
   echo "$P4A_AGENT_TOKEN_SECRET $P4A_AGENT_TOKEN_FILE"
-  if p4a_secret_exists "$repo_token"; then
-    echo "$repo_token $P4A_REPO_TOKEN_FILE"
-  fi
+  p4a_project_secrets "$1"
 }
 
 # Create PROJECT's network, on its own subnet, with no route out and no

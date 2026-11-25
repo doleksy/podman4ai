@@ -425,6 +425,32 @@ podman4ai-spoon-knife-repo-token,type=mount,target=repo-token,uid=1000,gid=1000,
   [ -z "$(create_args podman4ai-spoon-knife-proxy | flag_values --secret)" ]
 }
 
+@test "a Sandbox mounts a labelled Repo token at repo-token, and never a legacy one beside it" {
+  sandbox_machine_running
+  # Both a labelled Repo token and an unlabelled legacy one exist.
+  project_secrets hello-world "podman4ai.hello-world.repo-token repo-token"
+  p4a new octo/hello-world
+  [ "$(create_args podman4ai-hello-world | flag_values --secret)" = "podman4ai-agent-token,type=mount,target=agent-token,uid=1000,gid=1000,mode=0400
+podman4ai.hello-world.repo-token,type=mount,target=repo-token,uid=1000,gid=1000,mode=0400" ]
+}
+
+@test "projects whose names overlap never get each other's secrets, whatever the secret names are" {
+  sandbox_machine_running
+  fake_podman "--connection podman4ai exec podman4ai-foo curl https://example.com" --exit 56
+  fake_podman "--connection podman4ai exec podman4ai-foo-bar curl https://example.com" --exit 56
+  fake_podman "--connection podman4ai secret exists podman4ai-foo-repo-token" --exit 1
+  fake_podman "--connection podman4ai secret exists podman4ai-foo-bar-repo-token" --exit 1
+  # foo's secret named bar-repo-token, and foo-bar's Repo token.
+  project_secrets foo "podman4ai.foo.bar-repo-token bar-repo-token"
+  project_secrets foo-bar "podman4ai.foo-bar.repo-token repo-token"
+  p4a new octo/foo
+  p4a new octo/foo-bar
+  [ "$(create_args podman4ai-foo | flag_values --secret | cut -d, -f1,3)" = "podman4ai-agent-token,target=agent-token
+podman4ai.foo.bar-repo-token,target=bar-repo-token" ]
+  [ "$(create_args podman4ai-foo-bar | flag_values --secret | cut -d, -f1,3)" = "podman4ai-agent-token,target=agent-token
+podman4ai.foo-bar.repo-token,target=repo-token" ]
+}
+
 @test "new without an Agent token says how to set it, and creates nothing" {
   sandbox_machine_running
   fake_podman "--connection podman4ai secret exists podman4ai-agent-token" --exit 1
@@ -484,6 +510,7 @@ podman4ai-hello-world-repo-token" ]
 }
 
 @test "start leaves a Sandbox whose tokens are current alone" {
+  # Its Repo token is an unlabelled legacy one, which still counts.
   hello_world_exists
   run p4a start hello-world
   [ "$status" -eq 0 ]
@@ -502,6 +529,16 @@ podman4ai-hello-world-repo-token" ]
   [ "$status" -eq 0 ]
   [ "$(create_args podman4ai-hello-world | flag_values --secret | cut -d, -f1)" = "podman4ai-agent-token
 podman4ai-hello-world-repo-token" ]
+}
+
+@test "start gives a Sandbox that mounts a legacy Repo token the labelled one stored since" {
+  hello_world_exists
+  project_secrets hello-world "podman4ai.hello-world.repo-token repo-token"
+  run p4a start hello-world
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Recreating the Sandbox for hello-world"* ]]
+  [ "$(create_args podman4ai-hello-world | flag_values --secret | cut -d, -f1,3)" = "podman4ai-agent-token,target=agent-token
+podman4ai.hello-world.repo-token,target=repo-token" ]
 }
 
 @test "start never recreates a running Sandbox, and says how to give it the new tokens" {

@@ -28,11 +28,11 @@ secret_create_stdin() {
   [[ "$help" == *"README"* && "$help" == *"optional permissions"* ]]
 }
 
-@test "secret set repo-token stores a project's own Repo token, before or after p4a new" {
+@test "secret set repo-token stores a project's own Repo token, labelled with its project and name, before or after p4a new" {
   machines "podman4ai hyperv running"
   run p4a secret set repo-token hello-world <<< "github_pat_canary"
   [ "$status" -eq 0 ]
-  [ "$(podman_calls_starting '--connection podman4ai secret create')" = "--connection podman4ai secret create --replace podman4ai-hello-world-repo-token -" ]
+  [ "$(podman_calls_starting '--connection podman4ai secret create')" = "--connection podman4ai secret create --replace --label podman4ai.project=hello-world --label podman4ai.secret-name=repo-token podman4ai.hello-world.repo-token -" ]
   [ "$(secret_create_stdin)" = '"github_pat_canary"' ]
   [[ "$output" != *"github_pat_canary"* ]]
   [[ "$output" == *"Stored the Repo token for hello-world"* ]]
@@ -79,7 +79,7 @@ secret_create_stdin() {
   [ -z "$leaks" ]
   # Each value went to Podman exactly once, on stdin.
   [ "$(_calls 'c.stdin && /canary/.test(c.stdin) ? c.args.join(" ") : null')" = "--connection podman4ai secret create --replace podman4ai-agent-token -
---connection podman4ai secret create --replace podman4ai-hello-world-repo-token -" ]
+--connection podman4ai secret create --replace --label podman4ai.project=hello-world --label podman4ai.secret-name=repo-token podman4ai.hello-world.repo-token -" ]
 }
 
 @test "secret set refuses before reading a value when Podman in the Sandbox machine doesn't answer" {

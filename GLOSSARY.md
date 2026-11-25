@@ -74,8 +74,12 @@ _Avoid_: Claude Code session, tmux window, terminal
 The single long-lived credential that lets an Agent use the user's Claude subscription. The only secret shared by all Sandboxes.
 _Avoid_: API key, login, auth
 
+**Project secret**:
+A named value, such as an API key, that the user gives to one project's Sandbox, where it appears as a file. Only that project's Sandbox gets it, and the user stores it once for each project that needs it.
+_Avoid_: env var, API key (as the general term), credential
+
 **Repo token**:
-A GitHub credential scoped to exactly one repository, given only to that project's Sandbox.
+The Project secret that is a GitHub credential scoped to exactly one repository. The Sandbox's own git and `gh` use it.
 _Avoid_: PAT, GitHub token, git credentials
 
 **Bootstrapping**:
