@@ -17,7 +17,7 @@ FROM docker.io/library/debian:bookworm-slim
 RUN apt-get update \
  && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends \
-      ca-certificates curl git less nano jq ripgrep fzf tmux procps unzip \
+      ca-certificates curl git less nano jq ripgrep fzf tmux make procps unzip \
       libatomic1 locales \
  && rm -rf /var/lib/apt/lists/* \
  && sed -i 's/^# *\(en_US\.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
