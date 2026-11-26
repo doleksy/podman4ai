@@ -146,27 +146,32 @@ p4a_secret_exists() {
 # labelled one exists. Exit if Podman can't say, so nothing acts on a list
 # that's wrongly empty.
 p4a_project_secrets() {
-  local project=$1 secret_list secrets=() secret_names="" secret name legacy
+  local project=$1 secret_list secrets=() secret_labels="" secret owner name legacy
   local -A seen=()
-  secret_list="$(p4a_sandbox_podman secret ls --filter "label=$P4A_SECRET_PROJECT_LABEL=$project" \
-      --format '{{.Name}}' < /dev/null)" \
+  # Podman has no label filter for secrets (a remote one silently finds
+  # nothing), so list the Project secrets of every project, then keep
+  # PROJECT's by their labels.
+  secret_list="$(p4a_sandbox_podman secret ls --format '{{.Name}}' < /dev/null)" \
     || p4a_die "couldn't list the secrets of $project (see podman's message above)" \
       "check the Sandbox machine with 'p4a machine status', then try again"
-  mapfile -t secrets < <(grep -v '^$' <<< "$secret_list" | sort)
-  # Each secret's Project secret name, from its label: "SECRET NAME" lines.
+  mapfile -t secrets < <(grep '^podman4ai\.' <<< "$secret_list" | sort)
+  # Each secret's project and Project secret name, from its labels:
+  # "SECRET PROJECT NAME" lines.
   if (( ${#secrets[@]} )); then
-    secret_names="$(p4a_sandbox_podman secret inspect \
-        --format "{{.Spec.Name}} {{index .Spec.Labels \"$P4A_SECRET_NAME_LABEL\"}}" "${secrets[@]}" < /dev/null)" \
+    secret_labels="$(p4a_sandbox_podman secret inspect \
+        --format "{{.Spec.Name}} {{index .Spec.Labels \"$P4A_SECRET_PROJECT_LABEL\"}} {{index .Spec.Labels \"$P4A_SECRET_NAME_LABEL\"}}" \
+        "${secrets[@]}" < /dev/null)" \
       || p4a_die "couldn't read the secrets of $project (see podman's message above)" \
         "check the Sandbox machine with 'p4a machine status', then try again"
   fi
-  # The name becomes the file name, so only a valid one, only once, and
-  # never the Agent token's.
-  while read -r secret name; do
+  # Only PROJECT's. The name becomes the file name, so only a valid one,
+  # only once, and never the Agent token's.
+  while read -r secret owner name; do
+    [[ $owner == "$project" ]] || continue
     [[ $name =~ $P4A_SECRET_NAME_PATTERN && $name != "$P4A_AGENT_TOKEN_FILE" && -z ${seen[$name]:-} ]] || continue
     seen[$name]=1
     echo "$secret $name"
-  done <<< "$secret_names"
+  done <<< "$secret_labels"
   legacy="$(_p4a_legacy_repo_token_secret "$project")"
   if [[ -z ${seen[$P4A_REPO_TOKEN_NAME]:-} ]] && p4a_secret_exists "$legacy"; then
     echo "$legacy $P4A_REPO_TOKEN_NAME"

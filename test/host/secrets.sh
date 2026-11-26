@@ -105,16 +105,17 @@ done
 unset agent_token
 
 echo "--- 3. A Project secret reaches only its own project's Sandbox"
-labelled="$(p4a podman secret ls --filter label=podman4ai.project=hello-world --format '{{.Name}}' | sort | paste -sd ' ' -)"
-if [[ $labelled == "podman4ai.hello-world.p4a-test-key podman4ai.hello-world.repo-token" ]]; then
-  pass "the label filter finds hello-world's Project secrets, and only those"
+# p4a finds a project's secrets by their labels. (Podman has no label
+# filter for secrets: through the remote connection one finds nothing.)
+labels="$(p4a podman secret inspect \
+  --format '{{.Spec.Name}} {{index .Spec.Labels "podman4ai.project"}} {{index .Spec.Labels "podman4ai.secret-name"}}' \
+  podman4ai.hello-world.p4a-test-key podman4ai.hello-world.repo-token podman4ai.spoon-knife.repo-token)"
+if [[ $labels == "podman4ai.hello-world.p4a-test-key hello-world p4a-test-key
+podman4ai.hello-world.repo-token hello-world repo-token
+podman4ai.spoon-knife.repo-token spoon-knife repo-token" ]]; then
+  pass "each Project secret is labelled with its own project and name"
 else
-  fail "the label filter doesn't find exactly hello-world's Project secrets"
-fi
-if ! p4a podman secret ls --filter label=podman4ai.project=spoon-knife --format '{{.Name}}' | grep -q p4a-test-key; then
-  pass "the label filter doesn't give hello-world's Project secret to spoon-knife"
-else
-  fail "the label filter gives hello-world's Project secret to spoon-knife"
+  fail "the Project secrets' labels aren't their projects and names: $labels"
 fi
 if [[ "$(p4a shell hello-world -- cat /run/secrets/p4a-test-key)" == "$key" ]]; then
   pass "hello-world's Sandbox has its Project secret at /run/secrets/p4a-test-key"
