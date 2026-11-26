@@ -37,7 +37,7 @@ hello_world_exists() {
   sandbox_machine_running
   p4a new octo/hello-world
   : > "$FAKE_PODMAN_DIR/calls.jsonl"
-  # Its Sandbox mounts the current tokens.
+  # Its Sandbox mounts the current secrets.
   fake_podman "--connection podman4ai container inspect --format {{range .Config.Secrets}}{{.Name}}={{.ID}}{{println}}{{end}} podman4ai-hello-world" \
     --stdout "podman4ai-agent-token=id-1
 podman4ai-hello-world-repo-token=id-1"
@@ -78,19 +78,22 @@ base_image_id() {
 }
 
 # project_secrets PROJECT "SECRET NAME"...
-# Podman's label filter finds these labelled Project secrets of PROJECT:
-# each the Podman secret SECRET, labelled with the Project secret NAME.
+# The Sandbox machine also holds these labelled Project secrets of
+# PROJECT: each the Podman secret SECRET, labelled with PROJECT and the
+# Project secret NAME. Adds to those of earlier calls. As in real Podman,
+# `secret ls` lists every secret and has no label filter (a label filter
+# finds nothing); `secret inspect` gives each secret's labels.
 project_secrets() {
-  local project=$1 pair secrets=() names=()
+  local project=$1 pair known="$BATS_TEST_TMPDIR/project-secrets"
   shift
   for pair in "$@"; do
-    secrets+=("${pair%% *}")
-    names+=("$pair")
+    echo "${pair%% *} $project ${pair#* }" >> "$known"
   done
-  fake_podman "--connection podman4ai secret ls --filter label=podman4ai.project=$project --format {{.Name}}" \
-    --stdout "$(printf '%s\n' "${secrets[@]}")"
-  fake_podman "--connection podman4ai secret inspect --format {{.Spec.Name}} {{index .Spec.Labels \"podman4ai.secret-name\"}} ${secrets[*]}" \
-    --stdout "$(printf '%s\n' "${names[@]}")"
+  fake_podman "--connection podman4ai secret ls --format {{.Name}}" \
+    --stdout "$(printf '%s\n' podman4ai-agent-token; cut -d' ' -f1 "$known")"
+  fake_podman "--connection podman4ai secret ls --filter" --stdout ""
+  fake_podman "--connection podman4ai secret inspect --format {{.Spec.Name}} {{index .Spec.Labels \"podman4ai.project\"}} {{index .Spec.Labels \"podman4ai.secret-name\"}}" \
+    --stdout "$(cat "$known")"
 }
 
 # What hello-world's Sandbox mounts: lines of SECRET=ID.

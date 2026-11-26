@@ -484,7 +484,7 @@ sandbox_lifecycle_calls() {
   sandbox_calls | grep -E '^(rm|create --name podman4ai-hello-world |start podman4ai-hello-world$)' | sed 's/^\(create --name podman4ai-hello-world\) .*/\1/'
 }
 
-@test "start recreates a stopped Sandbox whose tokens changed, keeping its source and Claude config" {
+@test "start recreates a stopped Sandbox whose secrets changed, keeping its source and Claude config" {
   hello_world_exists
   # The Agent token was replaced since the Sandbox was created.
   hello_world_mounts "podman4ai-agent-token=old-id
@@ -509,7 +509,7 @@ podman4ai-hello-world-repo-token" ]
   [[ "$(flag_values --add-host <<< "$args")" == egress-proxy:10.89.1.2 ]]
 }
 
-@test "start leaves a Sandbox whose tokens are current alone" {
+@test "start leaves a Sandbox whose secrets are current alone" {
   # Its Repo token is an unlabelled legacy one, which still counts.
   hello_world_exists
   run p4a start hello-world
@@ -541,7 +541,33 @@ podman4ai-hello-world-repo-token" ]
 podman4ai.hello-world.repo-token,target=repo-token" ]
 }
 
-@test "start never recreates a running Sandbox, and says how to give it the new tokens" {
+@test "start gives a stopped Sandbox a Project secret added since, at /run/secrets/<name>" {
+  hello_world_exists
+  project_secrets hello-world "podman4ai.hello-world.mouser-api-key mouser-api-key"
+  run p4a start hello-world
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Recreating the Sandbox for hello-world to give it the current secrets"* ]]
+  [ "$(create_args podman4ai-hello-world | flag_values --secret)" = "podman4ai-agent-token,type=mount,target=agent-token,uid=1000,gid=1000,mode=0400
+podman4ai.hello-world.mouser-api-key,type=mount,target=mouser-api-key,uid=1000,gid=1000,mode=0400
+podman4ai-hello-world-repo-token,type=mount,target=repo-token,uid=1000,gid=1000,mode=0400" ]
+}
+
+@test "start recreates a stopped Sandbox whose Project secret was replaced since" {
+  hello_world_exists
+  project_secrets hello-world "podman4ai.hello-world.mouser-api-key mouser-api-key"
+  # The Sandbox mounts the secret, but Podman gave the replaced one a new ID.
+  hello_world_mounts "podman4ai-agent-token=id-1
+podman4ai.hello-world.mouser-api-key=old-id
+podman4ai-hello-world-repo-token=id-1"
+  run p4a start hello-world
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Recreating the Sandbox for hello-world to give it the current secrets"* ]]
+  [ "$(sandbox_lifecycle_calls)" = "rm podman4ai-hello-world
+create --name podman4ai-hello-world
+start podman4ai-hello-world" ]
+}
+
+@test "start never recreates a running Sandbox, and says how to give it the new secrets" {
   hello_world_exists
   hello_world_mounts "podman4ai-agent-token=old-id
 podman4ai-hello-world-repo-token=id-1"
@@ -549,7 +575,7 @@ podman4ai-hello-world-repo-token=id-1"
   run --separate-stderr p4a start hello-world
   [ "$status" -eq 0 ]
   [ -z "$(sandbox_calls | grep -E '^(rm|create) ')" ]
-  [[ "$stderr" == *"p4a: warning: the Sandbox for hello-world is running with old tokens"$'\n'"  fix: run 'p4a stop hello-world', then 'p4a start hello-world'"* ]]
+  [[ "$stderr" == *"p4a: warning: the Sandbox for hello-world is running with old secrets"$'\n'"  fix: run 'p4a stop hello-world', then 'p4a start hello-world'"* ]]
 }
 
 @test "the Sandbox's git uses the developer's name and email from the Host's git config" {

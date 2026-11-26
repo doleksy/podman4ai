@@ -270,7 +270,7 @@ sandbox_image_used() {
   [ -z "$(sandbox_calls | grep -E '^(stop|rm|create) ')" ]
 }
 
-@test "start, recreating a Sandbox for new tokens, puts it on the Project image, or stops first if that isn't built" {
+@test "start, recreating a Sandbox for new secrets, puts it on the Project image, or stops first if that isn't built" {
   hello_world_exists
   hello_world_containerfile "$GO_CONTAINERFILE"
   hello_world_mounts "podman4ai-agent-token=old-id
