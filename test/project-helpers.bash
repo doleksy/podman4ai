@@ -77,6 +77,22 @@ base_image_id() {
   fake_podman "--connection podman4ai image inspect --format {{.Id}} localhost/podman4ai-base" --stdout "$1"
 }
 
+# project_secrets PROJECT "SECRET NAME"...
+# Podman's label filter finds these labelled Project secrets of PROJECT:
+# each the Podman secret SECRET, labelled with the Project secret NAME.
+project_secrets() {
+  local project=$1 pair secrets=() names=()
+  shift
+  for pair in "$@"; do
+    secrets+=("${pair%% *}")
+    names+=("$pair")
+  done
+  fake_podman "--connection podman4ai secret ls --filter label=podman4ai.project=$project --format {{.Name}}" \
+    --stdout "$(printf '%s\n' "${secrets[@]}")"
+  fake_podman "--connection podman4ai secret inspect --format {{.Spec.Name}} {{index .Spec.Labels \"podman4ai.secret-name\"}} ${secrets[*]}" \
+    --stdout "$(printf '%s\n' "${names[@]}")"
+}
+
 # What hello-world's Sandbox mounts: lines of SECRET=ID.
 hello_world_mounts() {
   fake_podman "--connection podman4ai container inspect --format {{range .Config.Secrets}}{{.Name}}={{.ID}}{{println}}{{end}} podman4ai-hello-world" --stdout "$1"

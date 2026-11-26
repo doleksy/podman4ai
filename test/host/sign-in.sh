@@ -53,7 +53,9 @@ p4a() { "$repo/bin/p4a" "$@"; }
 project="${P4A_TEST_REPO#*/}"
 project="${project,,}"
 agent_secret=podman4ai-agent-token
-repo_secret="podman4ai-$project-repo-token"
+# The Repo token as p4a secret set stores it; the precondition below falls
+# back to one stored before Project secrets existed.
+repo_secret="podman4ai.$project.repo-token"
 
 # Where p4a keeps project settings (see README, "Projects").
 projects_dir() {
@@ -93,6 +95,7 @@ part_exists() {
 
 missing=()
 part_exists secret "$agent_secret" || missing+=("p4a secret set agent-token")
+part_exists secret "$repo_secret" || repo_secret="podman4ai-$project-repo-token"
 part_exists secret "$repo_secret" || missing+=("p4a secret set repo-token $project")
 if (( ${#missing[@]} )); then
   echo "This check signs in with real tokens, and not all of them are stored yet." >&2

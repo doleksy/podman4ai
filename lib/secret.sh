@@ -6,14 +6,26 @@
 # stdin: never a command line, an environment definition or an image.
 
 P4A_AGENT_TOKEN_SECRET=podman4ai-agent-token
-p4a_repo_token_secret() { echo "podman4ai-$1-repo-token"; }
 
-# Where the tokens appear in a Sandbox: /run/secrets/<name>, readable only
-# by the Base image's user (uid 1000).
-# shellcheck disable=SC2034 # read by lib/project.sh
+# A Project secret NAME of PROJECT is the Podman secret
+# podman4ai.<project>.<name>, labelled with both. The secret module finds a
+# project's secrets by the project label, never by parsing secret names.
+# The name is unique anyway: a secret name has no ".", so the last "."
+# divides project from name, and the "." after podman4ai keeps it apart
+# from the Agent token and legacy Repo tokens.
+P4A_SECRET_PROJECT_LABEL=podman4ai.project
+P4A_SECRET_NAME_LABEL=podman4ai.secret-name
+P4A_SECRET_NAME_PATTERN='^[a-z0-9][a-z0-9-]*$'
+p4a_project_secret() { echo "podman4ai.$1.$2"; }
+# A Repo token stored before Project secrets existed: unlabelled, and
+# still that project's repo-token until a labelled one is stored.
+_p4a_legacy_repo_token_secret() { echo "podman4ai-$1-repo-token"; }
+
+# Where the secrets appear in a Sandbox: /run/secrets/<name>, readable only
+# by the Base image's user (uid 1000). The Repo token is the Project secret
+# named repo-token.
 P4A_AGENT_TOKEN_FILE=agent-token
-# shellcheck disable=SC2034 # read by lib/project.sh
-P4A_REPO_TOKEN_FILE=repo-token
+P4A_REPO_TOKEN_NAME=repo-token
 
 p4a_secret() {
   local command="${1:-}"
@@ -62,7 +74,7 @@ _p4a_secret_set() {
       [[ $# -eq 2 && $project =~ $P4A_PROJECT_NAME_PATTERN ]] \
         || p4a_usage_error "secret set repo-token needs one project name (the repository's name in lower case)" "p4a secret --help"
       p4a_require_running_sandbox_machine
-      _p4a_store_secret "$(p4a_repo_token_secret "$project")" "Repo token for $project"
+      _p4a_store_project_secret "$project" "$P4A_REPO_TOKEN_NAME" "Repo token for $project"
       echo "Stored the Repo token for $project."
       if [[ -f "$(_p4a_projects_dir)/$project.conf" ]]; then
         echo "Its Sandbox uses it once restarted: p4a stop $project, then p4a start $project."
@@ -74,20 +86,30 @@ _p4a_secret_set() {
   esac
 }
 
-# _p4a_store_secret SECRET DESCRIPTION
+# _p4a_store_secret SECRET DESCRIPTION [OPTION...]
 # Read a value from a hidden prompt and store it as SECRET, replacing any
-# value it had. Podman gives the replaced secret a new ID, and containers
-# keep the copy they got when created: p4a start recreates them.
+# value it had, with the secret create OPTIONs (its labels). Podman gives
+# the replaced secret a new ID, and containers keep the copy they got when
+# created: p4a start recreates them.
 _p4a_store_secret() {
-  local value
-  IFS= read -rsp "Paste the $2 (input hidden): " value || true
+  local secret=$1 description=$2 value
+  shift 2
+  IFS= read -rsp "Paste the $description (input hidden): " value || true
   [[ -t 0 ]] && echo >&2
   value="${value//[[:space:]]/}"
-  [[ -n $value ]] || p4a_die "no $2 entered, so nothing was stored" "run the command again and paste the value"
+  [[ -n $value ]] || p4a_die "no $description entered, so nothing was stored" "run the command again and paste the value"
   # printf is a shell builtin, so the value is never on a command line.
-  printf %s "$value" | p4a_sandbox_podman secret create --replace "$1" - >/dev/null \
-    || p4a_die "couldn't store the $2 in the Sandbox machine (see podman's message above)" \
+  printf %s "$value" | p4a_sandbox_podman secret create --replace "$@" "$secret" - >/dev/null \
+    || p4a_die "couldn't store the $description in the Sandbox machine (see podman's message above)" \
       "check the Sandbox machine with 'p4a machine status'"
+}
+
+# _p4a_store_project_secret PROJECT NAME DESCRIPTION
+# Store PROJECT's Project secret NAME as _p4a_store_secret does, labelled
+# with its project and name so p4a_project_secrets finds it.
+_p4a_store_project_secret() {
+  _p4a_store_secret "$(p4a_project_secret "$1" "$2")" "$3" \
+    --label "$P4A_SECRET_PROJECT_LABEL=$1" --label "$P4A_SECRET_NAME_LABEL=$2"
 }
 
 # Succeed if the secret NAME exists in the Sandbox machine, fail if not.
@@ -100,6 +122,40 @@ p4a_secret_exists() {
     *) p4a_die "couldn't check whether the secret $1 exists (podman exited with $status)" \
          "check the Sandbox machine with 'p4a machine status'" ;;
   esac
+}
+
+# Print PROJECT's Project secrets, one "SECRET FILE" line each: the Podman
+# secret, and the file name it appears as in the Sandbox (the Project
+# secret's name). Found by label, so never another project's, whatever the
+# names. An unlabelled legacy Repo token counts as the repo-token unless a
+# labelled one exists. Exit if Podman can't say, so nothing acts on a list
+# that's wrongly empty.
+p4a_project_secrets() {
+  local project=$1 secret_list secrets=() secret_names="" secret name legacy
+  local -A seen=()
+  secret_list="$(p4a_sandbox_podman secret ls --filter "label=$P4A_SECRET_PROJECT_LABEL=$project" \
+      --format '{{.Name}}' < /dev/null)" \
+    || p4a_die "couldn't list the secrets of $project (see podman's message above)" \
+      "check the Sandbox machine with 'p4a machine status', then try again"
+  mapfile -t secrets < <(grep -v '^$' <<< "$secret_list" | sort)
+  # Each secret's Project secret name, from its label: "SECRET NAME" lines.
+  if (( ${#secrets[@]} )); then
+    secret_names="$(p4a_sandbox_podman secret inspect \
+        --format "{{.Spec.Name}} {{index .Spec.Labels \"$P4A_SECRET_NAME_LABEL\"}}" "${secrets[@]}" < /dev/null)" \
+      || p4a_die "couldn't read the secrets of $project (see podman's message above)" \
+        "check the Sandbox machine with 'p4a machine status', then try again"
+  fi
+  # The name becomes the file name, so only a valid one, only once, and
+  # never the Agent token's.
+  while read -r secret name; do
+    [[ $name =~ $P4A_SECRET_NAME_PATTERN && $name != "$P4A_AGENT_TOKEN_FILE" && -z ${seen[$name]:-} ]] || continue
+    seen[$name]=1
+    echo "$secret $name"
+  done <<< "$secret_names"
+  legacy="$(_p4a_legacy_repo_token_secret "$project")"
+  if [[ -z ${seen[$P4A_REPO_TOKEN_NAME]:-} ]] && p4a_secret_exists "$legacy"; then
+    echo "$legacy $P4A_REPO_TOKEN_NAME"
+  fi
 }
 
 # Exit with how to set it unless the Agent token is stored.

@@ -325,7 +325,8 @@ while read -r _ _ _ root point rest; do
       [[ $root == */containers/storage/*/userdata/secrets/podman4ai-agent-token ]] \
         || { echo "$point comes from $root, not the Agent token secret"; status=1; } ;;
     /run/secrets/repo-token)
-      [[ $root == */containers/storage/*/userdata/secrets/podman4ai-"$1"-repo-token ]] \
+      [[ $root == */containers/storage/*/userdata/secrets/podman4ai."$1".repo-token \
+        || $root == */containers/storage/*/userdata/secrets/podman4ai-"$1"-repo-token ]] \
         || { echo "$point comes from $root, not $1's Repo token secret"; status=1; } ;;
     /workspace | /home/agent/.claude)
       [[ $root == */containers/storage/volumes/podman4ai-"$1"-*/_data ]] \

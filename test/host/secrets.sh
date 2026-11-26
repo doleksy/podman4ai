@@ -31,7 +31,8 @@ repos=(octocat/Hello-World octocat/Spoon-Knife)
 config="$(bash -c "source '$repo/lib/common.sh'; source '$repo/lib/podman.sh'; source '$repo/lib/project.sh'; p4a_config_dir")"
 
 for project in "${projects[@]}"; do
-  if [[ -e $config/projects/$project.conf ]] || p4a podman secret exists "podman4ai-$project-repo-token"; then
+  if [[ -e $config/projects/$project.conf ]] || p4a podman secret exists "podman4ai.$project.repo-token" \
+    || p4a podman secret exists "podman4ai-$project-repo-token"; then
     echo "The project $project or its Repo token already exists; this check would replace it. Stopping." >&2
     exit 2
   fi
@@ -45,7 +46,7 @@ cleanup() {
     p4a podman rm -f "podman4ai-$project" "podman4ai-$project-proxy" >/dev/null 2>&1 || true
     p4a podman network rm -f "podman4ai-$project" >/dev/null 2>&1 || true
     p4a podman volume rm -f "podman4ai-$project-source" "podman4ai-$project-claude" >/dev/null 2>&1 || true
-    p4a podman secret rm "podman4ai-$project-repo-token" >/dev/null 2>&1 || true
+    p4a podman secret rm "podman4ai.$project.repo-token" >/dev/null 2>&1 || true
     rm -f "$config/projects/$project.conf" "$config/projects/$project.allowlist"
   done
 }
@@ -114,7 +115,7 @@ else
 fi
 
 # Remove the Repo token: the Sandbox no longer gets one, and can't push.
-p4a podman secret rm podman4ai-hello-world-repo-token >/dev/null
+p4a podman secret rm podman4ai.hello-world.repo-token >/dev/null
 p4a stop hello-world >/dev/null
 p4a start hello-world >/dev/null
 if p4a shell hello-world -- test -e /run/secrets/repo-token; then
