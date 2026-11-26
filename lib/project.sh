@@ -280,7 +280,7 @@ _p4a_refresh_proxy() {
 }
 
 # Create PROJECT's Sandbox container, attached to the project's network
-# and volumes, with the current tokens. Used by p4a new, and by p4a start
+# and volumes, with the current secrets. Used by p4a new, and by p4a start
 # to recreate it.
 _p4a_create_sandbox() {
   local project=$1 proxy_ip sandbox_ip
@@ -293,7 +293,7 @@ _p4a_create_sandbox() {
   for var in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do
     proxy_env+=(--env "$var=$P4A_PROXY_URL")
   done
-  # The tokens, as files only the Sandbox's user can read.
+  # The secrets, as files only the Sandbox's user can read.
   local list name file secrets=()
   list="$(_p4a_sandbox_secrets "$project")"
   while read -r name file; do
@@ -347,12 +347,12 @@ _p4a_check_sandbox_can_be_created() {
   _p4a_sandbox_image "$1" >/dev/null
 }
 
-# Recreate PROJECT's Sandbox if it doesn't mount the current tokens.
-# Podman copies a container's secrets when it's created, so a token stored
-# or replaced since then reaches the Sandbox only this way. Its Project
+# Recreate PROJECT's Sandbox if it doesn't mount the current secrets.
+# Podman copies a container's secrets when it's created, so a secret stored,
+# replaced or removed since then reaches the Sandbox only this way. Its Project
 # volume and Claude config volume are kept; anything else in the container
 # is lost. A running Sandbox is never recreated.
-_p4a_refresh_sandbox_tokens() {
+_p4a_refresh_sandbox_secrets() {
   local project=$1 sandbox list name file id want=() have
   sandbox="$(_p4a_sandbox_name "$project")"
   list="$(_p4a_sandbox_secrets "$project")"
@@ -365,12 +365,12 @@ _p4a_refresh_sandbox_tokens() {
   [[ "$(printf '%s\n' "${want[@]}" | sort)" == "$(grep -v '^$' <<< "$have" | sort)" ]] && return 0
 
   if [[ "$(p4a_sandbox_podman container inspect --format '{{.State.Running}}' "$sandbox")" == true ]]; then
-    p4a_warn "the Sandbox for $project is running with old tokens" \
+    p4a_warn "the Sandbox for $project is running with old secrets" \
       "run 'p4a stop $project', then 'p4a start $project'"
     return 0
   fi
   _p4a_check_sandbox_can_be_created "$project"
-  p4a_note "Recreating the Sandbox for $project to give it the current tokens. Its source and Claude config are kept; anything else changed inside it is lost."
+  p4a_note "Recreating the Sandbox for $project to give it the current secrets. Its source and Claude config are kept; anything else changed inside it is lost."
   p4a_sandbox_podman rm "$sandbox" >/dev/null
   _p4a_create_sandbox "$project" \
     || p4a_die "couldn't recreate the Sandbox for $project (see podman's message above); its volumes are kept" \
@@ -415,12 +415,12 @@ p4a_start() {
   _p4a_start_existing_project "$1"
 }
 
-# Start PROJECT as p4a start does: with the current tokens, its Egress
+# Start PROJECT as p4a start does: with the current secrets, its Egress
 # proxy first, then the self-check.
 _p4a_start_existing_project() {
   p4a_require_agent_token
   _p4a_refresh_proxy "$1"
-  _p4a_refresh_sandbox_tokens "$1"
+  _p4a_refresh_sandbox_secrets "$1"
   _p4a_start_project "$1"
 }
 

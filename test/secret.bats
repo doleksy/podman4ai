@@ -94,3 +94,68 @@ secret_create_stdin() {
   # Had it read the value first, it would have tried to store it.
   [ -z "$(podman_calls_starting '--connection podman4ai secret create')" ]
 }
+
+@test "secret set stores any Project secret by name, labelled with its project and name, from stdin only" {
+  machines "podman4ai hyperv running"
+  run p4a secret set mouser-api-key hello-world <<< "mouser_canary"
+  [ "$status" -eq 0 ]
+  [ "$(podman_calls_starting '--connection podman4ai secret create')" = "--connection podman4ai secret create --replace --label podman4ai.project=hello-world --label podman4ai.secret-name=mouser-api-key podman4ai.hello-world.mouser-api-key -" ]
+  [ "$(secret_create_stdin)" = '"mouser_canary"' ]
+  [ -z "$(_calls 'JSON.stringify([c.args, c.allEnv]).includes("mouser_canary") ? c.args.join(" ") : null')" ]
+  [[ "$output" != *"mouser_canary"* ]]
+  [[ "$output" == *"Stored the secret mouser-api-key for hello-world"* ]]
+  [[ "$output" == *"p4a new will use it"* ]]
+}
+
+@test "secret set says a project's Sandbox uses a new Project secret once restarted" {
+  machines "podman4ai hyperv running"
+  mkdir -p "$P4A_CONFIG_DIR/projects"
+  : > "$P4A_CONFIG_DIR/projects/hello-world.conf"
+  run p4a secret set mouser-api-key hello-world <<< "mouser_canary"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Its Sandbox uses it once restarted: p4a stop hello-world, then p4a start hello-world."* ]]
+}
+
+@test "secret set needs a valid secret name and one project, and agent-token takes no project" {
+  machines "podman4ai hyperv running"
+  for args in "" "Mouser-Key hello-world" "mouser.key hello-world" "-mouser hello-world" "mouser_key hello-world" \
+      "mouser-api-key" "mouser-api-key Hello/World" "mouser-api-key a b" "agent-token hello-world"; do
+    run p4a secret set $args <<< "mouser_canary"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"p4a secret --help"* ]]
+  done
+  [ -z "$(podman_calls_starting '--connection podman4ai secret')" ]
+}
+
+@test "secret set of a Project secret stores nothing for an empty value, and refuses before reading one when Podman doesn't answer" {
+  machines "podman4ai hyperv running"
+  run p4a secret set mouser-api-key hello-world <<< "   "
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no secret mouser-api-key for hello-world entered, so nothing was stored"* ]]
+  [ -z "$(podman_calls_starting '--connection podman4ai secret')" ]
+  podman_not_answering
+  run p4a secret set mouser-api-key hello-world <<< "mouser_canary"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"doesn't answer"* ]]
+  [ -z "$(podman_calls_starting '--connection podman4ai secret create')" ]
+}
+
+@test "secret set of a Project secret refuses before reading a value when the Sandbox machine isn't running" {
+  machines "podman4ai hyperv stopped"
+  run p4a secret set mouser-api-key hello-world <<< "mouser_canary"
+  [ "$status" -eq 1 ]
+  [ -z "$(podman_calls_starting '--connection podman4ai secret')" ]
+}
+
+@test "secret --help describes Project secrets, their name rules and when a Sandbox gets them" {
+  run p4a secret --help
+  [ "$status" -eq 0 ]
+  local help
+  help=$(tr -s ' \n' '  ' <<< "$output")
+  [[ "$help" == *"p4a secret set <name> <project>"* ]]
+  [[ "$help" == *"/run/secrets/<name>"* ]]
+  [[ "$help" == *"lower-case letters, digits and hyphens"* ]]
+  [[ "$help" == *"agent-token"*"reserved"* ]]
+  [[ "$help" == *"p4a stop"*"p4a start"* ]]
+  [[ "$help" == *"never recreates a running Sandbox"* ]]
+}

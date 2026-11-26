@@ -37,7 +37,7 @@ hello_world_exists() {
   sandbox_machine_running
   p4a new octo/hello-world
   : > "$FAKE_PODMAN_DIR/calls.jsonl"
-  # Its Sandbox mounts the current tokens.
+  # Its Sandbox mounts the current secrets.
   fake_podman "--connection podman4ai container inspect --format {{range .Config.Secrets}}{{.Name}}={{.ID}}{{println}}{{end}} podman4ai-hello-world" \
     --stdout "podman4ai-agent-token=id-1
 podman4ai-hello-world-repo-token=id-1"

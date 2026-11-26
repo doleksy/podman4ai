@@ -240,7 +240,7 @@ create --name podman4ai-hello-world" ]
   [[ "$output" != *"p4a image build"* ]]
 }
 
-@test "a limit p4a can't use stops start before it removes a Sandbox to give it new tokens" {
+@test "a limit p4a can't use stops start before it removes a Sandbox to give it new secrets" {
   hello_world_exists
   hello_world_mounts "podman4ai-agent-token=old-id
 podman4ai-hello-world-repo-token=id-1"

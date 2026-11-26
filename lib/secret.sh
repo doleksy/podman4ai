@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# p4a secret: the Agent token and Repo tokens, stored as Podman secrets in
+# p4a secret: the Agent token and Project secrets, stored as Podman secrets in
 # the Sandbox machine and mounted into Sandboxes as files.
 #
 # A value only ever travels through a hidden prompt and a pipe to Podman's
@@ -38,24 +38,35 @@ p4a_secret() {
 
 p4a_secret_usage() {
   cat <<'EOF'
-Usage: p4a secret set <name> [project]
+Usage: p4a secret set agent-token
+       p4a secret set <name> <project>
 
 Store a secret in the Sandbox machine. The value is read from a hidden
 prompt, so it never appears on a command line or in shell history.
+Storing a secret again replaces its value.
 
 Secrets:
   agent-token             the Agent token every Sandbox uses to sign in to
-                          Claude (create one with 'claude setup-token')
-  repo-token <project>    a fine-grained token from GitHub for that project's one
+                          Claude (create one with 'claude setup-token').
+                          The name is reserved: it takes no project.
+  <name> <project>        a Project secret: a value only that project's
+                          Sandbox gets, as the read-only file
+                          /run/secrets/<name> (for example
+                          'p4a secret set mouser-api-key hello-world').
+                          A name is lower-case letters, digits and hyphens.
+                          Store it before or after 'p4a new'.
+  repo-token <project>    the Project secret git and gh use: a fine-grained
+                          token from GitHub for that project's one
                           repository. It needs Contents, Pull requests and
                           Issues, each Read and write. The README's "Repo
                           token permissions" lists the recommended and
                           optional permissions. Set it before 'p4a new' to
                           clone a private repository.
 
-Existing Sandboxes get a new value at their next 'p4a stop', then
-'p4a start', which recreates the Sandbox (keeping its source and Claude
-config).
+A Sandbox gets copies of its secrets when it's created, so an existing one
+gets a new or changed secret at its next 'p4a stop', then 'p4a start',
+which recreates the Sandbox (keeping its source and Claude config).
+p4a start never recreates a running Sandbox.
 EOF
 }
 
@@ -69,20 +80,24 @@ _p4a_secret_set() {
       echo "Stored the Agent token."
       echo "Existing Sandboxes get it when restarted: p4a stop <project>, then p4a start <project>."
       ;;
-    repo-token)
+    "") p4a_usage_error "secret set needs a secret name" "p4a secret --help" ;;
+    *)
+      [[ $name =~ $P4A_SECRET_NAME_PATTERN ]] \
+        || p4a_usage_error "'$name' isn't a secret name: use lower-case letters, digits and hyphens, starting with a letter or digit" "p4a secret --help"
       local project="${2:-}"
       [[ $# -eq 2 && $project =~ $P4A_PROJECT_NAME_PATTERN ]] \
-        || p4a_usage_error "secret set repo-token needs one project name (the repository's name in lower case)" "p4a secret --help"
+        || p4a_usage_error "secret set $name needs one project name (the repository's name in lower case)" "p4a secret --help"
+      local description="secret $name for $project"
+      [[ $name != "$P4A_REPO_TOKEN_NAME" ]] || description="Repo token for $project"
       p4a_require_running_sandbox_machine
-      _p4a_store_project_secret "$project" "$P4A_REPO_TOKEN_NAME" "Repo token for $project"
-      echo "Stored the Repo token for $project."
+      _p4a_store_project_secret "$project" "$name" "$description"
+      echo "Stored the $description."
       if [[ -f "$(_p4a_projects_dir)/$project.conf" ]]; then
         echo "Its Sandbox uses it once restarted: p4a stop $project, then p4a start $project."
       else
         echo "p4a new will use it for the project $project."
       fi
       ;;
-    *) p4a_usage_error "unknown secret '$name'" "p4a secret --help" ;;
   esac
 }
 
